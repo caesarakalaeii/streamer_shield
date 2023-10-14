@@ -1,0 +1,121 @@
+import math
+import random
+import numpy as np
+from classification_helper import load_csv, save_csv
+
+class DataGen:
+    
+    def __init__(self) -> None:
+        pass
+    
+    def gen_gfx_suffix(data):
+        # Create a view of the first column as a string array
+        first_column = data[:, 0].astype(str)
+
+        # Initialize an empty list for the new first column
+        new_data = []
+        unique_values = set()
+
+        for s in first_column:
+            if "gfx" not in s:
+                new_value = s + "_gfx"
+                if new_value not in unique_values:
+                    unique_values.add(new_value)
+                    new_data.append([new_value, '1'])  # Make sure '1' is a string
+        return np.array(new_data)
+    
+    def randomize_numbers(data):
+        new_data = []
+        for i in range(len(data)):
+            unique_values = set()
+            for j in range(10):
+                old_d = data[i, 0].replace(f"{j}", f"{random.randint(0, 9)}")
+                new_d = data[i, 0].replace(f"{j}", f"{random.randint(0, 9)}")
+                if old_d not in unique_values:
+                    unique_values.add(old_d)
+                    new_data.append([old_d, data[i, 1]])
+                if new_d not in unique_values:
+                    unique_values.add(new_d)
+                    new_data.append([new_d, data[i, 1]])
+        new_data = np.array(new_data)
+        return new_data
+                
+    def gen_new_dim_inverse(data):
+        if data.shape[1] != 2:
+            raise ValueError("Input matrix must have 2 columns")
+
+        complementary_column = 1 - data[:, 1].astype(int)  # Convert the column to int before subtraction
+        result_matrix = np.column_stack((data, complementary_column))
+
+        return result_matrix
+
+    def convert_column_to_int(data, column_index):
+        data[:, column_index] = data[:, column_index].astype(int)
+        return data
+
+    def gen_gfx_prefix(data):
+            # Create a view of the first column as a string array
+        first_column = data[:, 0].astype(str)
+
+        # Initialize an empty list for the new first column
+        new_data = []
+        unique_values = set()
+
+        for s in first_column:
+            if "gfx" not in s:
+                new_value = "gfx_" + s
+                if new_value not in unique_values:
+                    unique_values.add(new_value)
+                    new_data.append([new_value, '1'])  # Make sure '1' is a string
+        return np.array(new_data)
+    
+    def full_name_gen(file_path_names, file_path_surnames, amount, gen_trailing_numbers = False):
+        surnames = load_csv(file_path_surnames)
+        names = load_csv(file_path_names)
+        picked_names = []
+        for i in range(amount):
+            name = f"{random.choice(names)[0]}_{random.choice(surnames)[0]}"
+            if(gen_trailing_numbers):
+                picked_names.append([name, 1])
+                for _ in range(random.randint(0, 4)):
+                    name += f"{random.randint(0, 9)}"
+                picked_names.append([name, 1])
+            else:
+                picked_names.append([name, 1])
+        return np.array(picked_names)
+    def name_gen(file_path_names, amount, gen_trailing_numbers = True):
+        names = load_csv(file_path_names)
+        picked_names = []
+        for i in range(amount):
+            name = f"{random.choice(names)[0]}"
+            if(gen_trailing_numbers):
+                for _ in range(random.randint(2, 5)):
+                    name += f"{random.randint(0, 9)}"
+                picked_names.append([name, 1])
+            else:
+                picked_names.append([name, 1])
+        return np.array(picked_names)
+    
+if __name__ == "__main__":
+    
+    #arr = np.array([['miss_hazel12345', '1'], ['janese_ice', '1'], ['verajule2', '0'], ['wizardliam08', '1'], ['jamaicsmithgfx', '1'], ['skyler_gfx01', '1'], ['stellawatson77', '0'], ['ranesewilson', '1'], ['gfx_gianna', '1'], ['jensonwill844873', '1']])
+    #arr = DataGen.convert_column_to_int(arr, 1)
+    #arr = DataGen.gen_gfx_prefix(arr)
+    #print(arr)
+    #arr = DataGen.randomize_numbers(arr)
+    #print(arr)
+    
+    arr = np.array(load_csv("data_for_gen.csv"))
+    raw_data_len = len(arr)
+    raw_data_scam = np.count_nonzero(arr == "1")
+    #arr = np.concatenate((arr,DataGen.gen_gfx_prefix(arr)),axis=0)
+    arr = np.concatenate((arr, DataGen.gen_gfx_suffix(arr)), axis=0)
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 120, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.name_gen("names.csv", 30, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
+    print(
+        f'''{math.floor((np.count_nonzero(arr == "1")/len(arr))*100)}% of the Dataset are scammers
+        Of that {raw_data_scam} were not generated
+        The item generation equates to {len(arr)-raw_data_len} items
+        Which brings the total data set to a lenght of {len(arr)}'''.replace("  ", ""))
+    save_csv("generated_data.csv", arr)

@@ -4,7 +4,7 @@ import pandas as pd
 import tensorflow as tf
 import classification_helper
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.model_selection import train_test_split
 
 def percentage_scammer(data, percentage):
@@ -46,12 +46,12 @@ def preprocess_string_data(strings, sequence_len):
 # Assuming your raw data looks like this
 # It should be replaced with your actual dataset
 if __name__ == "__main__":
-    raw_train_data = np.array(classification_helper.load_csv("train_data.csv"))
-    train_data = percentage_scammer(raw_train_data, 0.30)
+    train_data = np.array(classification_helper.load_csv("generated_data.csv"))
+    #train_data = percentage_scammer(raw_train_data, 0.0)
     #test_data = np.array(classification_helper.load_csv("train_data.csv"))
     np.random.shuffle(train_data)
     #np.random.shuffle(test_data)
-    
+    oneHot = False
     for i in range(len(train_data)):
         train_data[i] = [clean_data(train_data[i,0]),int(train_data[i,1])]
     #cleaned_test = []
@@ -73,8 +73,12 @@ if __name__ == "__main__":
     int_strings, vocab_len = preprocess_string_data(train_data[:,0], sequence_len)
     #int_strings_test, _ = preprocess_string_data(test_data[:,0], sequence_len)
     # Encoding labels
-    encoder = LabelEncoder()
-    int_labels = encoder.fit_transform(train_data[:,1])
+    if oneHot:
+        encoder = OneHotEncoder(sparse=False)
+        int_labels = encoder.fit_transform(np.array(train_data[:,1]).reshape(-1, 1))
+    else:
+        encoder = LabelEncoder()
+        int_labels = encoder.fit_transform(train_data[:,1])
     #int_labels_test = encoder.fit_transform(test_data[:,1])
 
     # Splitting the dataset into train and test datasets
@@ -85,26 +89,38 @@ if __name__ == "__main__":
     x_train, x_test, y_train, y_test = train_test_split(int_strings, int_labels, test_size=0.60)
 
     # CNN model 
-    model = tf.keras.models.Sequential([
+    if oneHot:
+        model = tf.keras.models.Sequential([
         tf.keras.layers.Embedding(vocab_len+1, 64, input_length=sequence_len),
-        
-        tf.keras.layers.Conv1D(64, 5, activation='relu'),
+        tf.keras.layers.Conv1D(128, 5, activation='relu'),
         tf.keras.layers.GlobalAveragePooling1D(),
         tf.keras.layers.Dense(64, activation='relu'),
-        tf.keras.layers.Dense(32, activation='relu'),
-        tf.keras.layers.Dense(1, activation='sigmoid')
-    ])
+        tf.keras.layers.Dense(2, activation='softmax')
+        ])
+        model.compile(loss='categorical_crossentropy',optimizer='adam',metrics=['accuracy'])
+    else:
+        model = tf.keras.models.Sequential([
+            tf.keras.layers.Embedding(vocab_len+1, 32, input_length=sequence_len),
+            
+            tf.keras.layers.Conv1D(32, 3, activation='relu'),
+            tf.keras.layers.GlobalAveragePooling1D(),
+            tf.keras.layers.Dense(32, activation='relu'),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
 
-    model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+        model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
 
-    earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=30, verbose=True,  restore_best_weights=True)
+    earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, verbose=True,  restore_best_weights=True)
     callbacksList = [earlystop]
     
-    history = model.fit(x_train, y_train, epochs=200, validation_data=(x_test, y_test), callbacks=callbacksList, verbose=True)
+    history = model.fit(x_train, y_train, epochs=300, validation_data=(x_test, y_test), callbacks=callbacksList, verbose=True)
 
 
     # Save the trained model to a file
-    model.save('streamershield.h5')
+    if oneHot:
+        model.save('streamershield_onehot.h5')
+    else:
+        model.save('streamershield.h5')
     
     lossMonitor = np.array(history.history['loss'])
     valLossMonitor = np.array(history.history['val_loss'])

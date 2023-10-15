@@ -66,4 +66,4 @@ if __name__ == "__main__":
                 else:
                     print(f"User {name} is a mystery! \nconfidence = {is_scammer[0][0]}")
             
-        
+      

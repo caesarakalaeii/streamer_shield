@@ -101,7 +101,6 @@ if __name__ == "__main__":
     else:
         model = tf.keras.models.Sequential([
             tf.keras.layers.Embedding(vocab_len+1, 32, input_length=sequence_len),
-            
             tf.keras.layers.Conv1D(32, 3, activation='relu'),
             tf.keras.layers.GlobalAveragePooling1D(),
             tf.keras.layers.Dense(32, activation='relu'),
@@ -113,7 +112,7 @@ if __name__ == "__main__":
     earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, verbose=True,  restore_best_weights=True)
     callbacksList = [earlystop]
     
-    history = model.fit(x_train, y_train, epochs=300, validation_data=(x_test, y_test), callbacks=callbacksList, verbose=True)
+    history = model.fit(x_train, y_train, epochs=20, validation_data=(x_test, y_test), callbacks=callbacksList, verbose=True)
 
 
     # Save the trained model to a file

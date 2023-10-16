@@ -2,10 +2,12 @@ import re
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from vocab import save_vocab
 import classification_helper
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.model_selection import train_test_split
+
 
 def percentage_scammer(data, percentage):
     
@@ -27,6 +29,7 @@ def clean_data(string):
 def preprocess_string_data(strings, sequence_len):
     # Creating a vocab set
     vocabulary = set(''.join(strings))
+    save_vocab(vocabulary)
     vocab_len = len(vocabulary)
 
     # Creating dictionary that maps each character to an integer
@@ -45,48 +48,24 @@ def preprocess_string_data(strings, sequence_len):
 
 # Assuming your raw data looks like this
 # It should be replaced with your actual dataset
-if __name__ == "__main__":
-    train_data = np.array(classification_helper.load_csv("generated_data.csv"))
-    #train_data = percentage_scammer(raw_train_data, 0.0)
-    #test_data = np.array(classification_helper.load_csv("train_data.csv"))
+def train(data_path, model_path ,layers = [32,32,32,1], kernel = 3, oneHot = False,balancing = 0.5,test_size = 0.3,  sequence_len = 25, patience = 5, epochs = 20):
+    tf.config.list_physical_devices('GPU')
+    train_data = np.array(classification_helper.load_csv(data_path))
+    #train_data = percentage_scammer(train_data, balancing)
     np.random.shuffle(train_data)
-    #np.random.shuffle(test_data)
-    oneHot = False
     for i in range(len(train_data)):
         train_data[i] = [clean_data(train_data[i,0]),int(train_data[i,1])]
-    #cleaned_test = []
-    #for i in range(len(test_data)):
-    #    try:
-    #        if train_data[i,0] == test_data[i,0]:
-    #            continue
-    #    except IndexError:
-    #        pass
-    #    cleaned_test.append([clean_data(test_data[i,0]), int(test_data[i,1])])
-    # Parameters
-    #test_data = np.array(cleaned_test)
-    sequence_len = 25
+    
 
-    # Get processed data
-    #test = train_data[:,0] #just the names
-    #test = train_data[:,1] #just the classification
     
     int_strings, vocab_len = preprocess_string_data(train_data[:,0], sequence_len)
-    #int_strings_test, _ = preprocess_string_data(test_data[:,0], sequence_len)
-    # Encoding labels
     if oneHot:
         encoder = OneHotEncoder(sparse=False)
         int_labels = encoder.fit_transform(np.array(train_data[:,1]).reshape(-1, 1))
     else:
         encoder = LabelEncoder()
         int_labels = encoder.fit_transform(train_data[:,1])
-    #int_labels_test = encoder.fit_transform(test_data[:,1])
-
-    # Splitting the dataset into train and test datasets
-    #x_train = int_strings
-    #y_train = int_labels
-    #x_test = int_strings_test
-    #y_test = int_labels_test
-    x_train, x_test, y_train, y_test = train_test_split(int_strings, int_labels, test_size=0.60)
+    x_train, x_test, y_train, y_test = train_test_split(int_strings, int_labels, test_size=test_size)
 
     # CNN model 
     if oneHot:
@@ -100,26 +79,23 @@ if __name__ == "__main__":
         model.compile(loss='categorical_crossentropy',optimizer='adam',metrics=['accuracy'])
     else:
         model = tf.keras.models.Sequential([
-            tf.keras.layers.Embedding(vocab_len+1, 32, input_length=sequence_len),
-            tf.keras.layers.Conv1D(32, 3, activation='relu'),
+            tf.keras.layers.Embedding(vocab_len+1, layers[0], input_length=sequence_len),
+            tf.keras.layers.Conv1D(layers[1], kernel, activation='relu'),
             tf.keras.layers.GlobalAveragePooling1D(),
-            tf.keras.layers.Dense(32, activation='relu'),
+            tf.keras.layers.Dense(layers[2], activation='relu'),
             tf.keras.layers.Dense(1, activation='sigmoid')
         ])
 
         model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
 
-    earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, verbose=True,  restore_best_weights=True)
+    earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=patience, verbose=True,  restore_best_weights=True)
     callbacksList = [earlystop]
     
-    history = model.fit(x_train, y_train, epochs=20, validation_data=(x_test, y_test), callbacks=callbacksList, verbose=True)
+    history = model.fit(x_train, y_train, epochs=epochs, validation_data=(x_test, y_test), callbacks=callbacksList, verbose=True)
 
 
     # Save the trained model to a file
-    if oneHot:
-        model.save('streamershield_onehot.h5')
-    else:
-        model.save('streamershield.h5')
+    model.save(model_path)
     
     lossMonitor = np.array(history.history['loss'])
     valLossMonitor = np.array(history.history['val_loss'])
@@ -133,4 +109,4 @@ if __name__ == "__main__":
     ax.legend()
     fig.savefig("shield_train.png")
    
-    
+   

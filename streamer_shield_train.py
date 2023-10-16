@@ -65,7 +65,7 @@ def train(data_path, model_path ,layers = [32,32,32,1], kernel = 3, oneHot = Fal
     else:
         encoder = LabelEncoder()
         int_labels = encoder.fit_transform(train_data[:,1])
-    x_train, x_test, y_train, y_test = train_test_split(int_strings, int_labels, test_size=test_size)
+    x_train, x_test, y_train, y_test = train_test_split(int_strings, int_labels, test_size=test_size, random_state=42)
 
     # CNN model 
     if oneHot:
@@ -88,10 +88,18 @@ def train(data_path, model_path ,layers = [32,32,32,1], kernel = 3, oneHot = Fal
 
         model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
 
-    earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=patience, verbose=True,  restore_best_weights=True)
+    earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', 
+                                                  patience=patience, 
+                                                  verbose=True,  
+                                                  restore_best_weights=True)
     callbacksList = [earlystop]
     
-    history = model.fit(x_train, y_train, epochs=epochs, validation_data=(x_test, y_test), callbacks=callbacksList, verbose=True)
+    history = model.fit(x_train, y_train,
+                        epochs=epochs,
+                        validation_data=(x_test, y_test),
+                        callbacks=callbacksList,
+                        verbose=True,
+                        use_multiprocessing=True)
 
 
     # Save the trained model to a file

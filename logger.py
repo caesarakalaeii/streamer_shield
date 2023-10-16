@@ -1,11 +1,7 @@
 import logging
 import time
 import os
-has_ros = True
-try:
-    import rospy #checks if rospy is present
-except ImportError:
-            has_ros = False 
+has_ros = False
 
 
 class Logger():
@@ -38,44 +34,32 @@ class Logger():
         
         if self.console_log:
             print("\033[93m {}\033[00m" .format("WARNING:"),"\033[93m {}\033[00m" .format(skk))
-        if self.ros_log:
-            rospy.logwarn(skk)
         if self.file_logging:
             logging.warning(skk)
        
     def error(self, skk): #red
         if self.console_log:   
             print("\033[91m {}\033[00m" .format("ERROR:"),"\033[91m {}\033[00m" .format(skk))
-        if self.ros_log:
-            rospy.logerr(skk)
         if self.file_logging:
             logging.error(skk)
         
     def fail(self, skk): #red
         if self.console_log: 
             print("\033[91m {}\033[00m" .format("FATAL:"),"\033[91m {}\033[00m" .format(skk))
-        if self.ros_log:
-            rospy.logfatal(skk)
         if self.file_logging:
             logging.exception(skk)
     def passing(self, skk): #green
         if self.console_log: 
             print("\033[92m {}\033[00m" .format(skk))
-        if self.ros_log:
-            rospy.loginfo(skk)
         if self.file_logging:
             logging.info(skk)
     def passingblue(self, skk): #blue
         if self.console_log: 
             print("\033[96m {}\033[00m" .format(skk))
-        if self.ros_log:
-            rospy.loginfo(skk)
         if self.file_logging:
             logging.info(skk)
     def info(self, skk): #blue
         if self.console_log: 
             print("\033[94m {}\033[00m" .format("Info:"),"\033[94m {}\033[00m" .format(skk))
-        if self.ros_log:
-            rospy.loginfo(skk)
         if self.file_logging:
             logging.debug(skk)

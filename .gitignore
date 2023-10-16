@@ -1,3 +1,5 @@
 *.csv
 *pycache*
 *.log
+config.py
+*token*

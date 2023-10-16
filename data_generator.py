@@ -69,12 +69,12 @@ class DataGen:
                     new_data.append([new_value, '1'])  # Make sure '1' is a string
         return np.array(new_data)
     
-    def full_name_gen(file_path_names, file_path_surnames, amount, gen_trailing_numbers = False):
+    def full_name_gen(file_path_names, file_path_surnames, amount, gen_trailing_numbers = False, insert = ''):
         surnames = load_csv(file_path_surnames)
         names = load_csv(file_path_names)
         picked_names = []
         for i in range(amount):
-            name = f"{random.choice(names)[0]}_{random.choice(surnames)[0]}"
+            name = f"{random.choice(names)[0]}{insert}{random.choice(surnames)[0]}"
             if(gen_trailing_numbers):
                 picked_names.append([name, 1])
                 for _ in range(random.randint(0, 4)):
@@ -83,6 +83,7 @@ class DataGen:
             else:
                 picked_names.append([name, 1])
         return np.array(picked_names)
+    
     def name_gen(file_path_names, amount, gen_trailing_numbers = True):
         names = load_csv(file_path_names)
         picked_names = []
@@ -96,22 +97,31 @@ class DataGen:
                 picked_names.append([name, 1])
         return np.array(picked_names)
     
+    def gen_char(data: np.ndarray, char = ''):
+        first_column: np.ndarray = data[:, 0].astype(str)
+
+        # Initialize an empty list for the new first column
+        new_data = []
+        unique_values = set()
+        for s in first_column:
+            index = random.randint(0,len(s)-1)
+            is_scammer = data[np.where(first_column == s),1][0][0]
+            new_value = s[:index] + char + s[index:]
+            if new_value not in unique_values:
+                unique_values.add(new_value)
+                new_data.append([new_value, is_scammer])
+        return np.array(new_data)
 if __name__ == "__main__":
-    
-    #arr = np.array([['miss_hazel12345', '1'], ['janese_ice', '1'], ['verajule2', '0'], ['wizardliam08', '1'], ['jamaicsmithgfx', '1'], ['skyler_gfx01', '1'], ['stellawatson77', '0'], ['ranesewilson', '1'], ['gfx_gianna', '1'], ['jensonwill844873', '1']])
-    #arr = DataGen.convert_column_to_int(arr, 1)
-    #arr = DataGen.gen_gfx_prefix(arr)
-    #print(arr)
-    #arr = DataGen.randomize_numbers(arr)
-    #print(arr)
     
     arr = np.array(load_csv("data_for_gen.csv"))
     raw_data_len = len(arr)
     raw_data_scam = np.count_nonzero(arr == "1")
-    arr = np.concatenate((arr,DataGen.gen_gfx_prefix(arr)),axis=0)
-    arr = np.concatenate((arr, DataGen.gen_gfx_suffix(arr)), axis=0)
-    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 50, gen_trailing_numbers=True)))
     arr = np.concatenate((arr, DataGen.name_gen("names.csv", 50, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.gen_char(arr, char='_')))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 50, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 50, gen_trailing_numbers=True, insert = '_')))
+    arr = np.concatenate((arr, DataGen.gen_gfx_prefix(arr)),axis=0)
+    arr = np.concatenate((arr, DataGen.gen_gfx_suffix(arr)), axis=0)
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
     print(
         f'''{math.floor((np.count_nonzero(arr == "1")/len(arr))*100)}% of the Dataset are scammers

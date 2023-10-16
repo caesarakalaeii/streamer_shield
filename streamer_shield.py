@@ -1,6 +1,7 @@
 from streamer_shield_train import clean_data
 from vocab import load_vocab
 import tensorflow as tf
+from logger import Logger
 import numpy as np
 
 class StreamerShield:
@@ -67,7 +68,8 @@ class StreamerShield:
         
     
 if __name__ == "__main__":
-    ss = StreamerShield("G:\VS_repos\streamer_shield\streamershield.h5", 25, 0.8, 0.5)
+    ss = StreamerShield("G:\VS_repos\streamer_shield\shield_candidate_32_16_8.h5", 25, 0.5, 0.5)
+    l = Logger(console_log=True)
     onehot = False
     
     while(True):
@@ -76,7 +78,24 @@ if __name__ == "__main__":
             print("Stopping...")
             break
         if name == "test":
-            ss.test(onehot)
+            correctly_identified_users_bool,correctly_identified_users_conf,correctly_identified_scammers_bool, correctly_identified_scammers_conf = ss.test(False)
+            user_perc = 0
+            for user in correctly_identified_users_bool:
+                if user == True:
+                    user_perc +=1
+            for scammer in correctly_identified_scammers_bool:
+                if scammer == True:
+                    user_perc +=1
+                    
+            total_perc = user_perc/(len(correctly_identified_scammers_bool)+ len(correctly_identified_users_bool))
+            
+            l.passing(f'''
+                    Test results: {total_perc}
+                    Users: {correctly_identified_users_bool}
+                    conf: {correctly_identified_users_conf}
+                    Scammer: {correctly_identified_scammers_bool}
+                    conf: {correctly_identified_scammers_conf}
+                    '''.replace(' ', ''))
         else:
             is_scammer = ss.predict(name)
             if(onehot):

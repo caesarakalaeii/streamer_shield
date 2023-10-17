@@ -21,6 +21,7 @@ class TwitchConfig:
     black_list_location : str
     channel_location : str
     user_name : str
+    is_armed : bool = False
     model_path : str = 'shield.h5'
     ban_reason : str = '''You've been banned by StreamerShield, if you think the was an Error, please make an unban request'''
     max_lenght : int = 30 #should be kept at 30, as the model was trained with it
@@ -46,6 +47,7 @@ class StreamerShieldTwitch:
         self.user_scopes = config.user_scopes
         self.user_name = config.user_name
         self.white_list = config.white_list_location
+        self.is_armed  = config.is_armed
         self.black_list = config.black_list_location
         self.channel_location = config.channel_location
         self.ban_reason = config.ban_reason
@@ -140,6 +142,8 @@ class StreamerShieldTwitch:
         self.chat.register_event(ChatEvent.READY, self.on_ready)
         # listen to chat join events (might not trigger, depending channel size)
         self.chat.register_event(ChatEvent.JOIN, self.on_join)
+        
+        self.chat.register_event(ChatEvent.JOINED, self.on_joined)
         # listen to chat messages
         self.chat.register_event(ChatEvent.MESSAGE, self.on_message)
         for command, value in self.commands.items():
@@ -152,16 +156,10 @@ class StreamerShieldTwitch:
         
         self.running = True
         
-        while(self.running):
-            com = input("type help for available commands")
-            await self.command_handler(com)
-            
-       
+        await self.cli_run()
         
-        # stopping both eventsub as well as gracefully closing the connection to the API
-        print("shutting down")
-        await self.eventsub.stop()
-        await self.twitch.close()
+        
+            
             
     ### CLI Command Handling
     async def command_handler(self, command :str):
@@ -169,17 +167,24 @@ class StreamerShieldTwitch:
         if not(parts[0] in self.commands.keys()):
             self.l.error(f'Command {parts[0]} unknown')
         if self.commands[parts[0]]['value']:
-           self.commands[parts[0]]['cli_func'](parts[0])
+           await self.commands[parts[0]]['cli_func'](parts[0])
            return
-        self.commands[parts[0]]['cli_func']()
+        await self.commands[parts[0]]['cli_func']()
         
+    async def cli_run(self):
+        while(self.running):
+            com = input("type help for available commands\n")
+            await self.command_handler(com)
+    
     
     async def help_cli(self):
         for command, value in self.commands.items():
             self.l.passing(f'{value["help"]}')
     async def stop_cli(self):
         self.l.fail("Stopping!")
-        self.is_running = False
+        await self.chat.stop()
+        await self.eventsub.stop()
+        await self.twitch.close()
     
     async def arm_cli(self):
         self.l.warning("Armed StreamerShield")
@@ -306,7 +311,7 @@ class StreamerShieldTwitch:
         await ready_event.chat.join_room(channels)
     
     async def on_joined(self, joined_event: JoinedEvent):
-        await joined_event.chat.send_message(joined_event.room_name, "This Chat is now protected wit StreamerShield")
+        await joined_event.chat.send_message(joined_event.room_name, "This Chat is now protected with StreamerShield")
         
     async def on_message(self, msg : ChatMessage):
         name = msg.user.name

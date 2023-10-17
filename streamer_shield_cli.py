@@ -238,20 +238,20 @@ class StreamerShieldTwitch:
     async def stop_twitch(self, chat_command:ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
             return
-        chat_command.reply("StreamerShield can only be shutdown via cli")
+        await chat_command.reply("StreamerShield can only be shutdown via cli")
         
         
     async def arm_twitch(self, chat_command : ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
             return
-        chat_command.reply("Armed StreamerShield")
+        await chat_command.reply("Armed StreamerShield")
         self.l.warning("Armed StreamerShield")
         self.is_armed = True
         
     async def disarm_twitch(self, chat_command : ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
             return
-        chat_command.reply("Disarmed StreamerShield")
+        await chat_command.reply("Disarmed StreamerShield")
         self.l.warning("Disarmed StreamerShield")
         self.is_armed = False
     
@@ -261,24 +261,24 @@ class StreamerShieldTwitch:
             return
         unable_to_join = self.chat.join_room(name)
         if not (unable_to_join == None):
-            chat_command.reply("Unable to join")
+            await chat_command.reply("Unable to join")
             self.l.error(f"Unable to join {name}")
             return
         if self.chat.is_mod(name):
-            chat_command.reply("Joined succsessfully")
+            await chat_command.reply("Joined succsessfully")
             self.list_update(name, self.channel_location)
             self.l.passing(f"Succsessfully joined {name}")
             return
-        chat_command.reply(f"Succsessfully joined {name}, but no mod status")
+        await chat_command.reply(f"Succsessfully joined {name}, but no mod status")
         self.l.error(f"Succsessfully joined {name}, but no mod status")
             
     async def leave_twitch(self, chat_command : ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
             return
         if(not chat_command.parameter == chat_command.room.name):
-            chat_command.reply("Leaving... Bye!")
+            await chat_command.reply("Leaving... Bye!")
             self.list_update(chat_command.parameter, self.channel_location, remove=True)
-            self.chat.leave_room(chat_command.parameter)
+            await self.chat.leave_room(chat_command.parameter)
         
     async def whitelist_twitch(self, chat_command : ChatCommand):
         if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
@@ -335,13 +335,13 @@ class StreamerShieldTwitch:
             self.l.warning("Banned user found")
             if self.is_armed:
                 user = await first(self.twitch.get_users(logins=name))
-                self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
+                await self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
         conf = self.ss.predict(name)
         if (bool(np.round(conf))):
             if self.is_armed:
                 user = await first(self.twitch.get_users(logins=name))
-                self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
+                await self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return
         self.l.passing(f'User {name} was classified as a user with conf {conf}')

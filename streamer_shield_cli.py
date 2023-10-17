@@ -19,7 +19,8 @@ class TwitchConfig:
     user_scopes : [AuthScope]
     white_list_location : str
     black_list_location : str
-    channel : str
+    channel_location : str
+    user_name : str
     model_path : str = 'shield.h5'
     ban_reason : str = '''You've been banned by StreamerShield, if you think the was an Error, please make an unban request'''
     max_lenght : int = 30 #should be kept at 30, as the model was trained with it
@@ -36,21 +37,81 @@ class TwitchConfig:
 class StreamerShieldTwitch:
     twitch : Twitch
     chat : Chat
-    
+    commands : dict
+    is_armed : bool
     
     def __init__(self, config : TwitchConfig) -> None:
         self.__app_id = config.app_id
         self.__app_secret = config.app_secret
         self.user_scopes = config.user_scopes
-        self.channel = config.channel
+        self.user_name = config.user_name
         self.white_list = config.white_list_location
         self.black_list = config.black_list_location
+        self.channel_location = config.channel_location
         self.ban_reason = config.ban_reason
         self.ss = StreamerShield(config.model_path,
                                  config.max_lenght,
                                  config.scammer_threshold,
                                  config.user_threshold)
+        self.l = config.logger
+        self.commands = {
+        "help":{
+            "help": "!help: prints all commands",
+            "value": False,
+            "cli_fun": self.help_cli,
+            "twt_func": self.help_twitch
+            },
+        "arm":{
+                "help": "!arm: enables StreamerShield to ban users",
+                "value": False,
+                "cli_fun": self.arm_cli,
+                "twt_func": self.arm_twitch
+                },
+        "disarm":{
+                "help": "!disarm: stops StreamerShield from banning users",
+                "value": False,
+                "cli_fun": self.disarm_cli,
+                "twt_func": self.disarm_twitch
+                },
+        "join":{
+                "help": "!join chat_name: joins a chat",
+                "value": True,
+                "cli_fun": self.join_cli,
+                "twt_func": self.join_twitch
+                },
+        "leave":{
+                "help": "!leave chat_name: leaves a chat",
+                "value": True,
+                "func": self.leave_cli,
+                "twt_func": self.leave_twitch
+                },
+        "whitelist":{
+                "help": "!whitelist user_name: whitelist user",
+                "value": True,
+                "cli_func": self.whitelist_cli,
+                "twt_func": self.whitelist_twitch
+                },
+        "unwhitelist":{
+                "help": "!unwhitelist user_name: removes user from whitelist",
+                "value": True,
+                "cli_func": self.unwhitelist_cli,
+                "twt_func": self.unwhitelist_twitch
+                },
+        "blacklist":{
+                "help": "!blacklist user_name: blacklist user",
+                "value": True,
+                "cli_func": self.blacklist_cli,
+                "twt_func": self.blacklist_twitch
+                },
+        "unblacklist":{
+                "help": "!unblacklist user_name: removes user from blacklist",
+                "value": True,
+                "cli_func": self.unblacklist_cli,
+                "twt_func": self.unblacklist_twitch
+                }
+        }
         pass
+          
     
     async def run(self):
         self.twitch = await Twitch(self.__app_id, self.__app_secret)
@@ -63,7 +124,7 @@ class StreamerShieldTwitch:
         token, refresh_token = await auth.authenticate()
         # add User authentication
         await self.twitch.set_user_authentication(token, target_scope, refresh_token)
-        self.user = await first(self.twitch.get_users(logins=self.channel))
+        self.user = await first(self.twitch.get_users(logins=self.user_name))
         
         self.chat = await Chat(self.twitch)
 
@@ -75,20 +136,20 @@ class StreamerShieldTwitch:
         self.chat.register_event(ChatEvent.JOIN, self.on_join)
         # listen to chat messages
         self.chat.register_event(ChatEvent.MESSAGE, self.on_message)
-        # we are done with our setup, lets start this bot up!
-        self.chat.register_command("whitelist", self.white_list_user)
-        self.chat.register_command("blacklist", self.black_list_user)
-        self.chat.register_command("unwhitelist", self.un_white_list_user)
-        self.chat.register_command("unblacklist", self.un_black_list_user)
+        for command, value in self.commands.items():
+            self.chat.register_command(command, value['twt_func'])
         self.chat.start()
         
         self.eventsub = EventSubWebsocket(self.twitch)
         self.eventsub.start()
         await self.eventsub.listen_channel_follow_v2(self.user.id, self.user.id, self.on_follow)
         
-        
+        runing = True
         try:
-            input('press Enter to shut down...')
+            while(runing):
+                com = input("type help for available commands")
+                await self.command_handler(com)
+            
         except KeyboardInterrupt:
             pass
         finally:
@@ -96,75 +157,188 @@ class StreamerShieldTwitch:
             print("shutting down")
             await self.eventsub.stop()
             await self.twitch.close()
+            
+    ### CLI Command Handling
+    async def command_handler(self, command :str):
+        parts = command.split(" ")
+        if not(parts[0] in self.commands.keys()):
+            self.l.error(f'Command {parts[0]} unknown')
+        if self.commands[parts[0]]['value']:
+           self.commands[parts[0]]['cli_func'](parts[0])
+           return
+        self.commands[parts[0]]['cli_func']()
+        
     
+    async def help_cli(self, ):
+        for command, value in self.commands.items():
+            self.l.passing(f'{value["help"]}')
+    
+    async def arm_cli(self):
+        self.l.warning("Armed StreamerShield")
+        self.is_armed = True
+    async def disarm_cli(self):
+        self.l.warning("Disarmed StreamerShield")
+        self.is_armed = False
+    
+    async def join_cli(self, name:str):
+        unable_to_join = self.chat.join_room(name)
+        if not (unable_to_join == None):
+            self.l.error(f"Unable to join {name}")
+            return
+        if self.chat.is_mod(name):
+            self.l.passing(f"Succsessfully joined {name}")
+            self.list_update(name, self.channel_location, remove=True)
+            return
+        self.l.error(f"Succsessfully joined {name}, but no mod status")
+            
+    async def leave_cli(self, name:str):
+        self.chat.leave_room(name)
+        self.list_update(name, self.channel_location, remove=True)
+        self.l.passing(f"Left {name}")
+        
+    async def whitelist_cli(self, name:str):
+        self.l.passing(f"Whitelisted {name}")
+        self.list_update(name, self.white_list)    
+        
+    async def unwhitelist_cli(self, name:str):
+        self.l.passing(f"Unwhitelisted {name}")
+        self.list_update(name, self.white_list, remove= True)   
+        
+    async def blacklist_cli(self, name:str):
+        self.l.passing(f"Blacklisted {name}")
+        self.list_update(name, self.black_list)
+        
+    async def unblacklist_cli(self, name:str):
+        self.l.passing(f"Unblacklisted {name}")
+        self.list_update(name, self.black_list, remove= True)
+        
+    ### Twitch Command Handling
+    
+    async def help_twitch(self, chat_command : ChatCommand):
+        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
+            return
+        reply = ''
+        for command, value in self.commands.items():
+            reply += f'{value["help"]}; '
+        chat_command.reply(reply)
+        
+    
+    async def arm_twitch(self, chat_command : ChatCommand):
+        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
+            return
+        chat_command.reply("Armed StreamerShield")
+        self.l.warning("Armed StreamerShield")
+        self.is_armed = True
+        
+    async def disarm_twitch(self, chat_command : ChatCommand):
+        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
+            return
+        chat_command.reply("Disarmed StreamerShield")
+        self.l.warning("Disarmed StreamerShield")
+        self.is_armed = False
+    
+    async def join_twitch(self, chat_command : ChatCommand):
+        name = chat_command.parameter
+        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
+            return
+        unable_to_join = self.chat.join_room(name)
+        if not (unable_to_join == None):
+            chat_command.reply("Unable to join")
+            self.l.error(f"Unable to join {name}")
+            return
+        if self.chat.is_mod(name):
+            chat_command.reply("Joined succsessfully")
+            self.list_update(name, self.channel_location)
+            self.l.passing(f"Succsessfully joined {name}")
+            return
+        chat_command.reply(f"Succsessfully joined {name}, but no mod status")
+        self.l.error(f"Succsessfully joined {name}, but no mod status")
+            
+    async def leave_twitch(self, chat_command : ChatCommand):
+        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
+            return
+        if(not chat_command.parameter == chat_command.room.name):
+            chat_command.reply("Leaving... Bye!")
+            self.list_update(chat_command.parameter, self.channel_location, remove=True)
+            self.chat.leave_room(chat_command.parameter)
+        
+    async def whitelist_twitch(self, chat_command : ChatCommand):
+        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+            name = chat_command.parameter.replace(' ', '')
+            self.list_update(name, self.white_list)
+            await chat_command.reply(f'User {name} is now whitelisted')
+        
+    async def unwhitelist_twitch(self, chat_command : ChatCommand):
+        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+            name = chat_command.parameter.replace(' ', '')
+            self.list_update(name, self.white_list, remove = True)
+            await chat_command.reply(f'User {name} is no longer whitelisted')
+            
+    async def blacklist_twitch(self, chat_command : ChatCommand):
+        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+            name = chat_command.parameter.replace(' ', '')
+            self.list_update(name, self.black_list)
+            await chat_command.reply(f'User {name} is now blacklisted')
+        
+    async def unblacklist_twitch(self, chat_command : ChatCommand):
+        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+            name = chat_command.parameter.replace(' ', '')
+            self.list_update(name, self.black_list, remove = True)
+            await chat_command.reply(f'User {name} is no longer blacklisted')
+    
+    ###Event Subs and Chat events
     
     async def on_ready(self,ready_event: EventData):
-        await ready_event.chat.join_room(self.channel)
+        channels = self.load_list(self.channel_location)
+        await ready_event.chat.join_room(channels)
     
     async def on_joined(self, joined_event: JoinedEvent):
-        await joined_event.chat.send_message(self.channel, "This Chat is now protected wit StreamerShield")
+        await joined_event.chat.send_message(joined_event.room_name, "This Chat is now protected wit StreamerShield")
         
     async def on_message(self, msg : ChatMessage):
         name = msg.user.name
-        await self.check_user(name)
+        await self.check_user(name, msg.room.room_id)
         
     async def on_join(self, join_event : JoinEvent):
         name = join_event.user_name
-        await self.check_user(name)
+        await self.check_user(name, join_event.room.room_id)
         
     async def on_follow(self, data: ChannelFollowEvent):
         name = data.event.user_name
-        await self.check_user(name)
-            
-    async def check_user(self, name :str):
+        await self.check_user(name, data.event.broadcaster_user_id)
+    
+    
+    ### StreamerShield Main
+    async def check_user(self, name :str, room_name_id):
         if await self.check_white_list(name): 
-            print("Whitelisted user found")
+            self.l.info("Whitelisted user found")
             return
         if await self.check_black_list(name): 
-            print("Banned user found")
+            self.l.warning("Banned user found")
+            if self.is_armed:
+                user = await first(self.twitch.get_users(logins=name))
+                self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
-            #self.twitch.ban_user(self.channel_id, self.channel_id, user.id, self.ban_reason)
         conf = self.ss.predict(name)
         if (bool(np.round(conf))):
-            user = await first(self.twitch.get_users(logins=name))
-            print(f'User {name} was classified as a scammer with conf {conf}')
+            if self.is_armed:
+                user = await first(self.twitch.get_users(logins=name))
+                self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
+            self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return
-            #self.twitch.ban_user(self.channel_id, self.channel_id, user.id, self.ban_reason)
-        print(f'User {name} was classified as a user with conf {conf}')
+        self.l.passing(f'User {name} was classified as a user with conf {conf}')
             
         
+    ### Utility functions    
+    
     async def user_refresh(token: str, refresh_token: str):
         print(f'my new user token is: {token}')
 
     async def app_refresh(token: str):
         print(f'my new app token is: {token}')
         
-    async def white_list_user(self, chat_command : ChatCommand):
-        if chat_command.user.mod or chat_command.user.name == self.channel:
-            name = chat_command.parameter.replace(' ', '')
-            self.list_update(name, self.white_list)
-            await chat_command.reply(f'User {name} is now whitelisted')
-        
-    async def un_white_list_user(self, chat_command : ChatCommand):
-        if chat_command.user.mod or chat_command.user.name == self.channel:
-            name = chat_command.parameter.replace(' ', '')
-            self.list_update(name, self.white_list, remove = True)
-            await chat_command.reply(f'User {name} is no longer whitelisted')
-        
     async def check_white_list(self, name):
         return self.check_list(name, self.white_list)
-        
-    async def black_list_user(self, chat_command : ChatCommand):
-        if chat_command.user.mod or chat_command.user.name == self.channel:
-            name = chat_command.parameter.replace(' ', '')
-            self.list_update(name, self.black_list)
-            await chat_command.reply(f'User {name} is now blacklisted')
-        
-    async def un_black_list_user(self, chat_command : ChatCommand):
-        if chat_command.user.mod or chat_command.user.name == self.channel:
-            name = chat_command.parameter.replace(' ', '')
-            self.list_update(name, self.black_list, remove = True)
-            await chat_command.reply(f'User {name} is no longer blacklisted')
     
     async def check_black_list(self, name):
         return self.check_list(name, self.black_list)
@@ -208,7 +382,7 @@ if __name__ == "__main__":
     config = TwitchConfig
     config.app_secret = APP_SECRET
     config.app_id = APP_ID
-    config.channel = TWITCH_USER
+    config.user_name = TWITCH_USER
     config.user_scopes = [AuthScope.CHAT_READ,
                           AuthScope.CHAT_EDIT,
                           AuthScope.MODERATOR_READ_CHATTERS,
@@ -216,6 +390,7 @@ if __name__ == "__main__":
                           AuthScope.MODERATOR_READ_FOLLOWERS]
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
+    config.channel_location = "joinable_channels.json"
     
     app = StreamerShieldTwitch(config)
     asyncio.run(app.run())

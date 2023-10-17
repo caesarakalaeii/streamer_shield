@@ -58,31 +58,37 @@ class StreamerShieldTwitch:
         "help":{
             "help": "!help: prints all commands",
             "value": False,
-            "cli_fun": self.help_cli,
+            "cli_func": self.help_cli,
             "twt_func": self.help_twitch
             },
+        "stop":{
+            "help": "!stop: stops the process (Not available for Twitch)",
+            "value": False,
+            "cli_func": self.stop_cli,
+            "twt_func": self.stop_twitch
+        },
         "arm":{
                 "help": "!arm: enables StreamerShield to ban users",
                 "value": False,
-                "cli_fun": self.arm_cli,
+                "cli_func": self.arm_cli,
                 "twt_func": self.arm_twitch
                 },
         "disarm":{
                 "help": "!disarm: stops StreamerShield from banning users",
                 "value": False,
-                "cli_fun": self.disarm_cli,
+                "cli_func": self.disarm_cli,
                 "twt_func": self.disarm_twitch
                 },
         "join":{
                 "help": "!join chat_name: joins a chat",
                 "value": True,
-                "cli_fun": self.join_cli,
+                "cli_func": self.join_cli,
                 "twt_func": self.join_twitch
                 },
         "leave":{
                 "help": "!leave chat_name: leaves a chat",
                 "value": True,
-                "func": self.leave_cli,
+                "cli_func": self.leave_cli,
                 "twt_func": self.leave_twitch
                 },
         "whitelist":{
@@ -144,19 +150,18 @@ class StreamerShieldTwitch:
         self.eventsub.start()
         await self.eventsub.listen_channel_follow_v2(self.user.id, self.user.id, self.on_follow)
         
-        runing = True
-        try:
-            while(runing):
-                com = input("type help for available commands")
-                await self.command_handler(com)
+        self.running = True
+        
+        while(self.running):
+            com = input("type help for available commands")
+            await self.command_handler(com)
             
-        except KeyboardInterrupt:
-            pass
-        finally:
-            # stopping both eventsub as well as gracefully closing the connection to the API
-            print("shutting down")
-            await self.eventsub.stop()
-            await self.twitch.close()
+       
+        
+        # stopping both eventsub as well as gracefully closing the connection to the API
+        print("shutting down")
+        await self.eventsub.stop()
+        await self.twitch.close()
             
     ### CLI Command Handling
     async def command_handler(self, command :str):
@@ -164,14 +169,17 @@ class StreamerShieldTwitch:
         if not(parts[0] in self.commands.keys()):
             self.l.error(f'Command {parts[0]} unknown')
         if self.commands[parts[0]]['value']:
-           self.commands[parts[0]]['cli_func'](parts[0])
+           self.commands[parts[0]]['cli_funcc'](parts[0])
            return
-        self.commands[parts[0]]['cli_func']()
+        self.commands[parts[0]]['cli_funcc']()
         
     
-    async def help_cli(self, ):
+    async def help_cli(self):
         for command, value in self.commands.items():
             self.l.passing(f'{value["help"]}')
+    async def stop_cli(self):
+        self.l.fail("Stopping!")
+        self.is_running = False
     
     async def arm_cli(self):
         self.l.warning("Armed StreamerShield")
@@ -222,7 +230,12 @@ class StreamerShieldTwitch:
             reply += f'{value["help"]}; '
         chat_command.reply(reply)
         
-    
+    async def stop_twitch(self, chat_command:ChatCommand):
+        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
+            return
+        chat_command.reply("StreamerShield can only be shutdown via cli")
+        
+        
     async def arm_twitch(self, chat_command : ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
             return

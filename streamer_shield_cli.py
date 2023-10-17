@@ -11,7 +11,7 @@ from twitchAPI.object.eventsub import ChannelFollowEvent
 from twitchAPI.eventsub.websocket import EventSubWebsocket
 from twitchAPI.type import AuthScope, ChatEvent
 from twitchAPI.oauth import UserAuthenticator,UserAuthenticationStorageHelper
-from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand
+from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
 
 class TwitchConfig:
     app_id : str
@@ -317,14 +317,18 @@ class StreamerShieldTwitch:
         
     async def on_message(self, msg : ChatMessage):
         name = msg.user.name
+        if self.check_for_privilege(msg.user):
+            return
         await self.check_user(name, msg.room.room_id)
         
     async def on_join(self, join_event : JoinEvent):
         name = join_event.user_name
+        
         await self.check_user(name, join_event.room.room_id)
         
     async def on_follow(self, data: ChannelFollowEvent):
         name = data.event.user_name
+        
         await self.check_user(name, data.event.broadcaster_user_id)
     
     
@@ -339,6 +343,7 @@ class StreamerShieldTwitch:
                 user = await first(self.twitch.get_users(logins=name))
                 await self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
+        
         conf = self.ss.predict(name)
         if (bool(np.round(conf))):
             if self.is_armed:
@@ -384,6 +389,11 @@ class StreamerShieldTwitch:
         except Exception as e:
             print(f"An error occurred while writing to {file_path}.json: {str(e)}")
 
+    async def check_for_privilege(self, user : ChatUser):
+        if(user.mod or user.vip or user.subscriber or user.turbo):
+            self.list_update(user.name, self.white_list)
+            return True
+        return False
     
     def load_list(self, file_path):
         if os.path.exists(file_path):

@@ -169,9 +169,9 @@ class StreamerShieldTwitch:
         if not(parts[0] in self.commands.keys()):
             self.l.error(f'Command {parts[0]} unknown')
         if self.commands[parts[0]]['value']:
-           self.commands[parts[0]]['cli_funcc'](parts[0])
+           self.commands[parts[0]]['cli_func'](parts[0])
            return
-        self.commands[parts[0]]['cli_funcc']()
+        self.commands[parts[0]]['cli_func']()
         
     
     async def help_cli(self):

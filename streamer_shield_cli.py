@@ -180,6 +180,7 @@ class StreamerShieldTwitch:
     async def help_cli(self):
         for command, value in self.commands.items():
             self.l.passing(f'{value["help"]}')
+            
     async def stop_cli(self):
         self.l.fail("Stopping!")
         await self.chat.stop()
@@ -189,6 +190,7 @@ class StreamerShieldTwitch:
     async def arm_cli(self):
         self.l.warning("Armed StreamerShield")
         self.is_armed = True
+        
     async def disarm_cli(self):
         self.l.warning("Disarmed StreamerShield")
         self.is_armed = False
@@ -233,7 +235,7 @@ class StreamerShieldTwitch:
         reply = ''
         for command, value in self.commands.items():
             reply += f'{value["help"]}; '
-        chat_command.reply(reply)
+        await chat_command.reply(reply)
         
     async def stop_twitch(self, chat_command:ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):

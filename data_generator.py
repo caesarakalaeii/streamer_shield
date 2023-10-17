@@ -111,6 +111,16 @@ class DataGen:
                 unique_values.add(new_value)
                 new_data.append([new_value, is_scammer])
         return np.array(new_data)
+    
+    
+    def longest_string_length(arr):
+        if arr.size == 0:
+            return 0  # Handle empty array case
+        
+        first_column = arr[:, 0]  # Extract the first column
+        max_length = len(max(first_column, key=len))  # Find the length of the longest string
+
+        return max_length   
 if __name__ == "__main__":
     
     arr = np.array(load_csv("data_for_gen.csv"))
@@ -128,4 +138,5 @@ if __name__ == "__main__":
         Of that {raw_data_scam} were not generated
         The item generation equates to {len(arr)-raw_data_len} items
         Which brings the total data set to a lenght of {len(arr)}'''.replace("  ", ""))
+    print(f"Please use {DataGen.longest_string_length(arr)} as the Squence length")
     save_csv("generated_data.csv", arr)

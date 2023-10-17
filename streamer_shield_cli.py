@@ -22,7 +22,7 @@ class TwitchConfig:
     channel : str
     model_path : str = 'shield.h5'
     ban_reason : str = '''You've been banned by StreamerShield, if you think the was an Error, please make an unban request'''
-    max_lenght : int = 25 #should be kept at 25, as the model only accepts that
+    max_lenght : int = 30 #should be kept at 30, as the model was trained with it
     scammer_threshold : int = 0.5 #only used for test function, not used for evaluation, yet
     user_threshold : int = 0.5 #only used for test function, not used for evaluation, yet
     logger : Logger = Logger(console_log=True,
@@ -214,7 +214,6 @@ if __name__ == "__main__":
                           AuthScope.MODERATOR_READ_CHATTERS,
                           AuthScope.MODERATOR_MANAGE_BANNED_USERS,
                           AuthScope.MODERATOR_READ_FOLLOWERS]
-    config.model_path = "auto_gen.h5"
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
     

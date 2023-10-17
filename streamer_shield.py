@@ -1,8 +1,14 @@
-from streamer_shield_train import clean_data
+
 from vocab import load_vocab
 import tensorflow as tf
 from logger import Logger
 import numpy as np
+import re
+
+def clean_data(string):
+    string = re.sub('[^a-zA-Z0-9]', ' ',string)
+    string = string.lower()
+    return string
 
 class StreamerShield:
     

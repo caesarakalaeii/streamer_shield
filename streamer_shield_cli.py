@@ -360,7 +360,8 @@ class StreamerShieldTwitch:
     ###Event Subs and Chat events
     
     async def on_ready(self,ready_event: EventData):
-        channels = self.load_list(self.channel_location)
+        channels :list = self.load_list(self.channel_location)
+        channels.append(self.chat.username)
         await ready_event.chat.join_room(channels)
     
     async def on_joined(self, joined_event: JoinedEvent):

@@ -164,7 +164,8 @@ class StreamerShieldTwitch:
         
         self.eventsub = EventSubWebsocket(self.twitch)
         self.eventsub.start()
-        await self.eventsub.listen_channel_follow_v2(self.user.id, self.user.id, self.on_follow)
+        for user in await self.twitch.get_users(logins = self.load_list(self.channel_location())):
+            await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
         
         self.running = True
         
@@ -233,6 +234,8 @@ class StreamerShieldTwitch:
             return
         if self.chat.is_mod(name):
             self.l.passing(f"Succsessfully joined {name}")
+            user = await first(self.twitch.get_users(logins=name))
+            await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
             self.list_update(name, self.channel_location, remove=True)
             return
         self.l.error(f"Succsessfully joined {name}, but no mod status")
@@ -300,6 +303,8 @@ class StreamerShieldTwitch:
             return
         if self.chat.is_mod(name):
             await chat_command.reply("Joined succsessfully")
+            user = await first(self.twitch.get_users(logins=name))
+            await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
             self.list_update(name, self.channel_location)
             self.l.passing(f"Succsessfully joined {name}")
             return
@@ -317,6 +322,8 @@ class StreamerShieldTwitch:
             return
         if self.chat.is_mod(name):
             await chat_command.reply("Joined succsessfully")
+            user = await first(self.twitch.get_users(logins=name))
+            await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
             self.list_update(name, self.channel_location)
             self.l.passing(f"Succsessfully joined {name}")
             return

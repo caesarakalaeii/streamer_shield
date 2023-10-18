@@ -465,6 +465,7 @@ if __name__ == "__main__":
     config = TwitchConfig
     config.app_secret = APP_SECRET
     config.app_id = APP_ID
+    config.max_lenght = 31
     config.user_name = TWITCH_USER
     config.user_scopes = [AuthScope.CHAT_READ,
                           AuthScope.CHAT_EDIT,

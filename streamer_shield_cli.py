@@ -274,8 +274,7 @@ class StreamerShieldTwitch:
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
             return
         await chat_command.reply("StreamerShield can only be shutdown via cli")
-        
-        
+           
     async def arm_twitch(self, chat_command : ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
             return
@@ -306,7 +305,6 @@ class StreamerShieldTwitch:
             return
         await chat_command.reply(f"Succsessfully joined {name}, but no mod status")
         self.l.error(f"Succsessfully joined {name}, but no mod status")
-    
     
     async def join_twitch(self, chat_command : ChatCommand):
         name = chat_command.parameter.replace("@", "")
@@ -402,6 +400,7 @@ class StreamerShieldTwitch:
         if (bool(np.round(conf))):
             if self.is_armed:
                 user = await first(self.twitch.get_users(logins=name))
+                #TODO: CHeck either for account age or follow count if possible
                 await self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return

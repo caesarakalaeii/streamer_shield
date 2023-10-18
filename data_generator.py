@@ -129,6 +129,7 @@ if __name__ == "__main__":
     arr = np.concatenate((arr, DataGen.gen_char(arr, char='_')))
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
     arr = np.concatenate((arr, DataGen.name_gen("names.csv", 30, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 20)))
     arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 20, gen_trailing_numbers=True)))
     arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 20, gen_trailing_numbers=True, insert = '_')))
     arr = np.concatenate((arr, DataGen.gen_char(arr, char='_')))

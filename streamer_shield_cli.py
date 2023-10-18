@@ -116,7 +116,19 @@ class StreamerShieldTwitch:
                 "value": True,
                 "cli_func": self.unblacklist_cli,
                 "twt_func": self.unblacklist_twitch
-                }
+                }, 
+        "streamershield":{
+            "help": "!streamershield : prints info about the shield",
+                "value": False,
+                "cli_func": self.shield_info_cli,
+                "twt_func": self.shield_info_twitch
+                }, 
+        "joinme":{
+            "help": "!joinme : joins user, only available in the bot chat",
+                "value": False,
+                "cli_func": self.join_me_cli,
+                "twt_func": self.join_me_twitch
+                },
         }
         pass
           
@@ -164,6 +176,8 @@ class StreamerShieldTwitch:
     ### CLI Command Handling
     async def command_handler(self, command :str):
         parts = command.split(" ")
+        if len(parts)==0:
+            return
         if not(parts[0] in self.commands.keys()):
             self.l.error(f'Command {parts[0]} unknown')
         if self.commands[parts[0]]['value']:
@@ -176,6 +190,10 @@ class StreamerShieldTwitch:
             com = input("type help for available commands\n")
             await self.command_handler(com)
     
+    async def shield_info_cli(self):
+        self.l.info('''
+                    StreamerShield is the AI ChatBot to rid twitch once and for all from scammers. More information here: https://linktr.ee/caesarlp
+                    ''')
     
     async def help_cli(self):
         for command, value in self.commands.items():
@@ -183,9 +201,19 @@ class StreamerShieldTwitch:
             
     async def stop_cli(self):
         self.l.fail("Stopping!")
-        await self.chat.stop()
-        await self.eventsub.stop()
-        await self.twitch.close()
+        try:
+            await self.chat.stop() #sometimes is already gone when stopped, so...
+        except:
+            pass
+        try:
+            await self.eventsub.stop()
+        except:
+            pass
+        try:
+            await self.twitch.close()
+        except:
+            pass
+        raise Exception("Stopped by User") #not the most elegant but works
     
     async def arm_cli(self):
         self.l.warning("Armed StreamerShield")
@@ -194,6 +222,9 @@ class StreamerShieldTwitch:
     async def disarm_cli(self):
         self.l.warning("Disarmed StreamerShield")
         self.is_armed = False
+    
+    async def join_me_cli(self):
+        self.l.error("Cannot invoke join_me from cli, please use join instead")
     
     async def join_cli(self, name:str):
         unable_to_join = self.chat.join_room(name)
@@ -228,6 +259,8 @@ class StreamerShieldTwitch:
         self.list_update(name, self.black_list, remove= True)
         
     ### Twitch Command Handling
+    async def shield_info_twitch(self, chat_command: ChatCommand):
+         await chat_command.reply('StreamerShield is the AI ChatBot to rid twitch once and for all from scammers. More information here: https://linktr.ee/caesarlp')
     
     async def help_twitch(self, chat_command : ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
@@ -257,11 +290,29 @@ class StreamerShieldTwitch:
         self.l.warning("Disarmed StreamerShield")
         self.is_armed = False
     
+    async def join_me_twitch(self, chat_command : ChatCommand):
+        name = chat_command.user.name
+        if(not (chat_command.room.name == self.chat.username)):
+            return
+        unable_to_join = await self.chat.join_room(name)
+        if not (unable_to_join == None):
+            await chat_command.reply("Unable to join")
+            self.l.error(f"Unable to join {name}")
+            return
+        if self.chat.is_mod(name):
+            await chat_command.reply("Joined succsessfully")
+            self.list_update(name, self.channel_location)
+            self.l.passing(f"Succsessfully joined {name}")
+            return
+        await chat_command.reply(f"Succsessfully joined {name}, but no mod status")
+        self.l.error(f"Succsessfully joined {name}, but no mod status")
+    
+    
     async def join_twitch(self, chat_command : ChatCommand):
-        name = chat_command.parameter
+        name = chat_command.parameter.replace("@", "")
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
             return
-        unable_to_join = self.chat.join_room(name)
+        unable_to_join = await self.chat.join_room(name)
         if not (unable_to_join == None):
             await chat_command.reply("Unable to join")
             self.l.error(f"Unable to join {name}")
@@ -284,25 +335,25 @@ class StreamerShieldTwitch:
         
     async def whitelist_twitch(self, chat_command : ChatCommand):
         if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
-            name = chat_command.parameter.replace(' ', '')
+            name = chat_command.parameter.replace("@", "")
             self.list_update(name, self.white_list)
             await chat_command.reply(f'User {name} is now whitelisted')
         
     async def unwhitelist_twitch(self, chat_command : ChatCommand):
         if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
-            name = chat_command.parameter.replace(' ', '')
+            name = chat_command.parameter.replace("@", "")
             self.list_update(name, self.white_list, remove = True)
             await chat_command.reply(f'User {name} is no longer whitelisted')
             
     async def blacklist_twitch(self, chat_command : ChatCommand):
         if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
-            name = chat_command.parameter.replace(' ', '')
+            name = chat_command.parameter.replace("@", "")
             self.list_update(name, self.black_list)
             await chat_command.reply(f'User {name} is now blacklisted')
         
     async def unblacklist_twitch(self, chat_command : ChatCommand):
         if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
-            name = chat_command.parameter.replace(' ', '')
+            name = chat_command.parameter.replace("@", "")
             self.list_update(name, self.black_list, remove = True)
             await chat_command.reply(f'User {name} is no longer blacklisted')
     
@@ -317,7 +368,9 @@ class StreamerShieldTwitch:
         
     async def on_message(self, msg : ChatMessage):
         name = msg.user.name
-        if self.check_for_privilege(msg.user):
+        privilege = (msg.user.mod or msg.user.vip or msg.user.subscriber or msg.user.turbo)
+        if(privilege):
+            self.list_update(name, self.white_list)
             return
         await self.check_user(name, msg.room.room_id)
         

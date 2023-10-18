@@ -45,8 +45,8 @@ class StreamerShield:
     
     
     def test(self, onehot):
-        test_names_users = ["caesarlp", "VTNiles", "RustoCa", "norari__" ]
-        test_names_scammers = ["Sophie_Howard25", "Jessica_Bell", "Amber_Brooks", "Alice_gfx"  ]
+        test_names_users = ["caesarlp", "VTNiles", "RustoCa", "norari__", "roooooooooberrrrrrrrrrrt" ]
+        test_names_scammers = ["Sophie_Howard25", "Jessica_Bell", "Amber_Brooks", "Alice_gfx", "elizabethshriver" ]
         correctly_identified_users_bool = []
         correctly_identified_users_conf = []
         correctly_identified_scammers_bool = []
@@ -74,7 +74,7 @@ class StreamerShield:
         
     
 if __name__ == "__main__":
-    ss = StreamerShield("G:\VS_repos\streamer_shield\shield_candidate_32_16_8.h5", 25, 0.5, 0.5)
+    ss = StreamerShield("G:\\VS_repos\\streamer_shield\\auto_gen.h5", 32, 0.3, 0.3)
     l = Logger(console_log=True)
     onehot = False
     

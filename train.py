@@ -5,9 +5,9 @@ from streamer_shield_train import train
 
 if __name__ == "__main__":
     l= Logger(console_log=True)
-    layers = [48, 32, 16]
-    train("generated_data.csv", "auto_gen.h5", layers=layers, patience = 10, epochs = 100, sequence_len=30)
-    ss = StreamerShield("auto_gen.h5",30, 0.5,0.5)
+    layers = [32, 28, 16]
+    train("generated_data.csv", "auto_gen.h5", layers=layers, kernel=5, patience = 10, epochs = 10, sequence_len=32)
+    ss = StreamerShield("auto_gen.h5",32, 0.5,0.5)
     correctly_identified_users_bool,correctly_identified_users_conf,correctly_identified_scammers_bool, correctly_identified_scammers_conf = ss.test(False)
     user_perc = 0
     for user in correctly_identified_users_bool:

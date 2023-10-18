@@ -126,13 +126,15 @@ if __name__ == "__main__":
     arr = np.array(load_csv("data_for_gen.csv"))
     raw_data_len = len(arr)
     raw_data_scam = np.count_nonzero(arr == "1")
-    arr = np.concatenate((arr, DataGen.name_gen("names.csv", 50, gen_trailing_numbers=True)))
     arr = np.concatenate((arr, DataGen.gen_char(arr, char='_')))
-    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 50, gen_trailing_numbers=True)))
-    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 50, gen_trailing_numbers=True, insert = '_')))
+    arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
+    arr = np.concatenate((arr, DataGen.name_gen("names.csv", 30, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 20, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 20, gen_trailing_numbers=True, insert = '_')))
+    arr = np.concatenate((arr, DataGen.gen_char(arr, char='_')))
+    arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
     arr = np.concatenate((arr, DataGen.gen_gfx_prefix(arr)),axis=0)
     arr = np.concatenate((arr, DataGen.gen_gfx_suffix(arr)), axis=0)
-    arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
     print(
         f'''{math.floor((np.count_nonzero(arr == "1")/len(arr))*100)}% of the Dataset are scammers
         Of that {raw_data_scam} were not generated

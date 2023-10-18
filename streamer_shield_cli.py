@@ -176,7 +176,7 @@ class StreamerShieldTwitch:
     ### CLI Command Handling
     async def command_handler(self, command :str):
         parts = command.split(" ")
-        if len(parts)==0:
+        if parts[0] == '':
             return
         if not(parts[0] in self.commands.keys()):
             self.l.error(f'Command {parts[0]} unknown')

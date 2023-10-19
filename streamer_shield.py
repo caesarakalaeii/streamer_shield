@@ -6,7 +6,7 @@ import numpy as np
 import re
 
 def clean_data(string):
-    string = re.sub('[^a-zA-Z0-9]', ' ',string)
+    string = re.sub('[^a-zA-Z0-9_]', ' ',string)
     string = string.lower()
     return string
 
@@ -19,8 +19,6 @@ class StreamerShield:
         self.user_threshold = user_threshold
         self.loaded_model = tf.keras.models.load_model(model_path)
         
-    def predict_with_process(self, string):
-        return self.predict(self.preprocess(string, self.max_length))
         
     def preprocess(self, string, sequence_len):
         # Creating a vocab set

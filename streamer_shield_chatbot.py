@@ -373,7 +373,7 @@ class StreamerShieldTwitch:
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
         
-        conf = self.request_prediction(name)
+        conf = await self.request_prediction(name)/1000
         if (bool(np.round(conf))):
             if self.is_armed:
                 user = await first(twitch.get_users(logins=name))
@@ -502,7 +502,7 @@ if __name__ == "__main__":
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
     config.channel_location = "joinable_channels.json"
-    config.shield_url = "http://localhost:15000/api/predict"
+    config.shield_url = "http://localhost:38080/api/predict"
     config.auth_url = "http://localhost:5000/login/confirm"
     
     chat_bot = StreamerShieldTwitch(config)

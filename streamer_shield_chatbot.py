@@ -114,7 +114,7 @@ class StreamerShieldTwitch:
         twitch = await Twitch(self.__app_id, self.__app_secret)
         auth = UserAuthenticator(twitch, TARGET_SCOPE, url=self.auth_url)
         
-        app.run()
+        app.run(host = "0.0.0.0")
         
         
     async def on_complete(self):

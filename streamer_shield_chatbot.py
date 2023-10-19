@@ -1,17 +1,26 @@
 import asyncio
 import json
 import os
-from flask import Flask, redirect, request
+from quart import Quart, redirect, request
 import requests
 import numpy as np
-from logger import Logger
 from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.helper import first
 from twitchAPI.twitch import Twitch
+from twitchAPI.eventsub.webhook import EventSubWebhook
+from twitchAPI.object.eventsub import ChannelFollowEvent
 from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException
-from twitchAPI.oauth import UserAuthenticator,UserAuthenticationStorageHelper
+from twitchAPI.oauth import UserAuthenticator
 from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
 from twitch_config import TwitchConfig
+from sqlalchemy import Column, String, Integer
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+
+
+
+
 
 class StreamerShieldTwitch:
     global twitch, auth
@@ -32,6 +41,7 @@ class StreamerShieldTwitch:
         self.l = config.logger
         self.auth_url = config.auth_url
         self.shield_url = config.shield_url
+        self.eventsub_url = config.eventsub_url
         self.commands = {
         "help":{
             "help": "!help: prints all commands",
@@ -56,12 +66,6 @@ class StreamerShieldTwitch:
                 "value": False,
                 "cli_func": self.disarm_cli,
                 "twt_func": self.disarm_twitch
-                },
-        "join":{
-                "help": "!join chat_name: joins a chat",
-                "value": True,
-                "cli_func": self.join_cli,
-                "twt_func": self.join_twitch
                 },
         "leave":{
                 "help": "!leave chat_name: leaves a chat",
@@ -98,27 +102,20 @@ class StreamerShieldTwitch:
                 "value": False,
                 "cli_func": self.shield_info_cli,
                 "twt_func": self.shield_info_twitch
-                }, 
-        "joinme":{
-            "help": "!joinme : joins user, only available in the bot chat",
-                "value": False,
-                "cli_func": self.join_me_cli,
-                "twt_func": self.join_me_twitch
-                },
+                }
         }
         pass
           
     
     async def run(self):
         global twitch, auth, app
+        
         twitch = await Twitch(self.__app_id, self.__app_secret)
         auth = UserAuthenticator(twitch, TARGET_SCOPE, url=self.auth_url)
         
-        app.run(host = "0.0.0.0")
-        
-        
-    async def on_complete(self):
-        
+        self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch)
+        await self.eventsub.unsubscribe_all()
+        await auth.authenticate()
         self.user = await first(twitch.get_users(logins=self.user_name))
         self.chat = await Chat(twitch)
 
@@ -192,7 +189,7 @@ class StreamerShieldTwitch:
     async def join_me_cli(self):
         self.l.error("Cannot invoke join_me from cli, please use join instead")
     
-    async def join_cli(self, name:str):
+    async def join_chat(self, name:str):
         global twitch
         unable_to_join = self.chat.join_room(name)
         if not (unable_to_join == None):
@@ -258,44 +255,7 @@ class StreamerShieldTwitch:
         self.l.warning("Disarmed StreamerShield")
         self.is_armed = False
     
-    async def join_me_twitch(self, chat_command : ChatCommand):
-        global twitch
-        name = chat_command.user.name
-        if(not (chat_command.room.name == self.chat.username)):
-            return
-        unable_to_join = await self.chat.join_room(name)
-        if not (unable_to_join == None):
-            await chat_command.reply("Unable to join")
-            self.l.error(f"Unable to join {name}")
-            return
-        if self.chat.is_mod(name):
-            await chat_command.reply("Joined succsessfully")
-            user = await first(twitch.get_users(logins=name))
-            await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
-            self.list_update(name, self.channel_location)
-            self.l.passing(f"Succsessfully joined {name}")
-            return
-        await chat_command.reply(f"Succsessfully joined {name}, but no mod status")
-        self.l.error(f"Succsessfully joined {name}, but no mod status")
-    
-    async def join_twitch(self, chat_command : ChatCommand):
-        name = chat_command.parameter.replace("@", "")
-        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
-            return
-        unable_to_join = await self.chat.join_room(name)
-        if not (unable_to_join == None):
-            await chat_command.reply("Unable to join")
-            self.l.error(f"Unable to join {name}")
-            return
-        if self.chat.is_mod(name):
-            await chat_command.reply("Joined succsessfully")
-            user = await first(twitch.get_users(logins=name))
-            await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
-            self.list_update(name, self.channel_location)
-            self.l.passing(f"Succsessfully joined {name}")
-            return
-        await chat_command.reply(f"Succsessfully joined {name}, but no mod status")
-        self.l.error(f"Succsessfully joined {name}, but no mod status")
+   
             
     async def leave_twitch(self, chat_command : ChatCommand):
         if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
@@ -355,10 +315,10 @@ class StreamerShieldTwitch:
     
     # Onfollow will only work with headless webhook approach
        
-    #async def on_follow(self, data: ChannelFollowEvent):
-    #    name = data.event.user_name
-    #    
-    #    await self.check_user(name, data.event.broadcaster_user_id)
+    async def on_follow(self, data: ChannelFollowEvent):
+        name = data.event.user_name
+        
+        await self.check_user(name, data.event.broadcaster_user_id)
     
     
     ### StreamerShield Main
@@ -445,11 +405,28 @@ class StreamerShieldTwitch:
             self.l.error(response.json())
 
 
-app = Flask(__name__)
+app = Quart(__name__)
 twitch: Twitch
 chat_bot: StreamerShieldTwitch
 auth: UserAuthenticator
 TARGET_SCOPE : list
+app.secret_key = 'your_secret_key'
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'  # SQLite database
+engine = create_engine('sqlite:///users.db', echo=True, connect_args={"check_same_thread": False})
+
+# Create a new async session factory
+session = sessionmaker(bind=engine, expire_on_commit=False)
+
+# Define your SQLAlchemy model
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    twitch_id = Column(String(255), unique=True, nullable=False)
+    access_token = Column(String(255), nullable=False)
+    refresh_token = Column(String(255), nullable=False)
 
 
 @app.route('/login')
@@ -459,6 +436,8 @@ def login():
 
 @app.route('/login/confirm')
 async def login_confirm():
+    global session
+    args = request.args
     state = request.args.get('state')
     if state != auth.state:
         return 'Bad state', 401
@@ -468,8 +447,17 @@ async def login_confirm():
     try:
         token, refresh = await auth.authenticate(user_token=code)
         await twitch.set_user_authentication(token, TARGET_SCOPE, refresh)
-    
-        await chat_bot.on_complete()
+        user_info = await first(twitch.get_users())
+        name = user_info.login
+        user = User(
+            twitch_id=user_info.id,
+            access_token=token,
+            refresh_token=refresh
+        )
+        async with session() as session:
+            session.add(user)
+            await session.commit()
+        chat_bot.join_chat(name)
         
         
     except TwitchAPIException as e:
@@ -487,6 +475,7 @@ async def login_confirm():
         
 
 
+
 if __name__ == "__main__":
     config = TwitchConfig
     config.app_secret = APP_SECRET
@@ -502,8 +491,18 @@ if __name__ == "__main__":
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
     config.channel_location = "joinable_channels.json"
+    config.eventsub_url = "https://twitchtorelais.laeii.de"
     config.shield_url = "http://localhost:38080/api/predict"
-    config.auth_url = "https://shield.laeii.de/login/confirm"
+    config.auth_url = "http://localhost:5000/login/confirm"
     
     chat_bot = StreamerShieldTwitch(config)
+    background_tasks = set()
     asyncio.run(chat_bot.run())
+    app.run()
+    #flask_task = asyncio.create_task(app.run())
+    #background_tasks.add(flask_task)
+    #chat_task = asyncio.create_task(chat_bot.run())
+    #background_tasks.add(chat_task)
+    #flask_task.add_done_callback(background_tasks.discard)
+    #chat_task.add_done_callback(background_tasks.discard)
+    

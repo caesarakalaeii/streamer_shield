@@ -19,6 +19,9 @@ class StreamerShield:
         self.user_threshold = user_threshold
         self.loaded_model = tf.keras.models.load_model(model_path)
         
+    def predict_with_process(self, string):
+        return self.predict(self.preprocess(string, self.max_length))
+        
     def preprocess(self, string, sequence_len):
         # Creating a vocab set
         vocabulary = load_vocab()

@@ -1,42 +1,20 @@
 import asyncio
 import json
 import os
+from flask import Flask, redirect, request
+import requests
 import numpy as np
 from logger import Logger
 from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.helper import first
 from twitchAPI.twitch import Twitch
-from streamer_shield import StreamerShield
-from twitchAPI.object.eventsub import ChannelFollowEvent
-from twitchAPI.eventsub.websocket import EventSubWebsocket
-from twitchAPI.type import AuthScope, ChatEvent
+from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException
 from twitchAPI.oauth import UserAuthenticator,UserAuthenticationStorageHelper
 from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
-
-class TwitchConfig:
-    app_id : str
-    app_secret : str      
-    user_scopes : [AuthScope]
-    white_list_location : str
-    black_list_location : str
-    channel_location : str
-    user_name : str
-    is_armed : bool = False
-    model_path : str = 'shield.h5'
-    ban_reason : str = '''You've been banned by StreamerShield, if you think the was an Error, please make an unban request'''
-    max_lenght : int = 30 #should be kept at 30, as the model was trained with it
-    scammer_threshold : int = 0.5 #only used for test function, not used for evaluation, yet
-    user_threshold : int = 0.5 #only used for test function, not used for evaluation, yet
-    logger : Logger = Logger(console_log=True,
-                             file_logging=True,
-                             file_URI="logs/streamer_shield.log",
-                             override=True)
-    
-    
-
+from twitch_config import TwitchConfig
 
 class StreamerShieldTwitch:
-    twitch : Twitch
+    global twitch, auth
     chat : Chat
     commands : dict
     is_armed : bool
@@ -51,11 +29,9 @@ class StreamerShieldTwitch:
         self.black_list = config.black_list_location
         self.channel_location = config.channel_location
         self.ban_reason = config.ban_reason
-        self.ss = StreamerShield(config.model_path,
-                                 config.max_lenght,
-                                 config.scammer_threshold,
-                                 config.user_threshold)
         self.l = config.logger
+        self.auth_url = config.auth_url
+        self.shield_url = config.shield_url
         self.commands = {
         "help":{
             "help": "!help: prints all commands",
@@ -134,19 +110,17 @@ class StreamerShieldTwitch:
           
     
     async def run(self):
-        self.twitch = await Twitch(self.__app_id, self.__app_secret)
-
-        target_scope = self.user_scopes
-        helper = UserAuthenticationStorageHelper(self.twitch, self.user_scopes)
-        await helper.bind()
-        auth = UserAuthenticator(self.twitch, target_scope, force_verify=False)
-        # this will open your default browser and prompt you with the twitch verification website
-        token, refresh_token = await auth.authenticate()
-        # add User authentication
-        await self.twitch.set_user_authentication(token, target_scope, refresh_token)
-        self.user = await first(self.twitch.get_users(logins=self.user_name))
+        global twitch, auth, app
+        twitch = await Twitch(self.__app_id, self.__app_secret)
+        auth = UserAuthenticator(twitch, TARGET_SCOPE, url=self.auth_url)
         
-        self.chat = await Chat(self.twitch)
+        app.run()
+        
+        
+    async def on_complete(self):
+        
+        self.user = await first(twitch.get_users(logins=self.user_name))
+        self.chat = await Chat(twitch)
 
         # register the handlers for the events you want
 
@@ -161,11 +135,6 @@ class StreamerShieldTwitch:
         for command, value in self.commands.items():
             self.chat.register_command(command, value['twt_func'])
         self.chat.start()
-        
-        self.eventsub = EventSubWebsocket(self.twitch)
-        self.eventsub.start()
-        for user in await self.twitch.get_users(logins = self.load_list(self.channel_location())):
-            await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
         
         self.running = True
         
@@ -207,11 +176,7 @@ class StreamerShieldTwitch:
         except:
             pass
         try:
-            await self.eventsub.stop()
-        except:
-            pass
-        try:
-            await self.twitch.close()
+            await twitch.close()
         except:
             pass
         raise Exception("Stopped by User") #not the most elegant but works
@@ -228,13 +193,14 @@ class StreamerShieldTwitch:
         self.l.error("Cannot invoke join_me from cli, please use join instead")
     
     async def join_cli(self, name:str):
+        global twitch
         unable_to_join = self.chat.join_room(name)
         if not (unable_to_join == None):
             self.l.error(f"Unable to join {name}")
             return
         if self.chat.is_mod(name):
             self.l.passing(f"Succsessfully joined {name}")
-            user = await first(self.twitch.get_users(logins=name))
+            user = await first(twitch.get_users(logins=name))
             await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
             self.list_update(name, self.channel_location, remove=True)
             return
@@ -293,6 +259,7 @@ class StreamerShieldTwitch:
         self.is_armed = False
     
     async def join_me_twitch(self, chat_command : ChatCommand):
+        global twitch
         name = chat_command.user.name
         if(not (chat_command.room.name == self.chat.username)):
             return
@@ -303,7 +270,7 @@ class StreamerShieldTwitch:
             return
         if self.chat.is_mod(name):
             await chat_command.reply("Joined succsessfully")
-            user = await first(self.twitch.get_users(logins=name))
+            user = await first(twitch.get_users(logins=name))
             await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
             self.list_update(name, self.channel_location)
             self.l.passing(f"Succsessfully joined {name}")
@@ -322,7 +289,7 @@ class StreamerShieldTwitch:
             return
         if self.chat.is_mod(name):
             await chat_command.reply("Joined succsessfully")
-            user = await first(self.twitch.get_users(logins=name))
+            user = await first(twitch.get_users(logins=name))
             await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
             self.list_update(name, self.channel_location)
             self.l.passing(f"Succsessfully joined {name}")
@@ -384,11 +351,14 @@ class StreamerShieldTwitch:
         name = join_event.user_name
         
         await self.check_user(name, join_event.room.room_id)
-        
-    async def on_follow(self, data: ChannelFollowEvent):
-        name = data.event.user_name
-        
-        await self.check_user(name, data.event.broadcaster_user_id)
+    
+    
+    # Onfollow will only work with headless webhook approach
+       
+    #async def on_follow(self, data: ChannelFollowEvent):
+    #    name = data.event.user_name
+    #    
+    #    await self.check_user(name, data.event.broadcaster_user_id)
     
     
     ### StreamerShield Main
@@ -399,16 +369,16 @@ class StreamerShieldTwitch:
         if await self.check_black_list(name): 
             self.l.warning("Banned user found")
             if self.is_armed:
-                user = await first(self.twitch.get_users(logins=name))
-                await self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
+                user = await first(twitch.get_users(logins=name))
+                await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
         
-        conf = self.ss.predict(name)
+        conf = self.request_prediction(name)
         if (bool(np.round(conf))):
             if self.is_armed:
-                user = await first(self.twitch.get_users(logins=name))
+                user = await first(twitch.get_users(logins=name))
                 #TODO: CHeck either for account age or follow count if possible
-                await self.twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
+                await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return
         self.l.passing(f'User {name} was classified as a user with conf {conf}')
@@ -462,7 +432,56 @@ class StreamerShieldTwitch:
                 return i
         else: 
             raise FileNotFoundError
+    
+    async def request_prediction(self, name : str):
+        data = {"input_string": name}
+
+        response = requests.post(self.shield_url, json=data)
+
+        if response.status_code == 200:
+            return response.json()["result"]
+            
+        else:
+            self.l.error(response.json())
+
+
+app = Flask(__name__)
+twitch: Twitch
+chat_bot: StreamerShieldTwitch
+auth: UserAuthenticator
+TARGET_SCOPE : list
+
+
+@app.route('/login')
+def login():
+    return redirect(auth.return_auth_url())
+
+
+@app.route('/login/confirm')
+async def login_confirm():
+    state = request.args.get('state')
+    if state != auth.state:
+        return 'Bad state', 401
+    code = request.args.get('code')
+    if code is None:
+        return 'Missing code', 400
+    try:
+        token, refresh = await auth.authenticate(user_token=code)
+        await twitch.set_user_authentication(token, TARGET_SCOPE, refresh)
+    
+        await chat_bot.on_complete()
         
+        
+    except TwitchAPIException as e:
+        return 'Failed to generate auth token', 400
+    return 'Sucessfully authenticated!'
+
+
+    
+    
+
+
+
         
         
         
@@ -474,14 +493,17 @@ if __name__ == "__main__":
     config.app_id = APP_ID
     config.max_lenght = 31
     config.user_name = TWITCH_USER
-    config.user_scopes = [AuthScope.CHAT_READ,
+    TARGET_SCOPE = [AuthScope.CHAT_READ,
                           AuthScope.CHAT_EDIT,
                           AuthScope.MODERATOR_READ_CHATTERS,
                           AuthScope.MODERATOR_MANAGE_BANNED_USERS,
                           AuthScope.MODERATOR_READ_FOLLOWERS]
+    config.user_scopes = TARGET_SCOPE
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
     config.channel_location = "joinable_channels.json"
+    config.shield_url = "http://localhost:15000/api/predict"
+    config.auth_url = "http://localhost:5000/login/confirm"
     
-    app = StreamerShieldTwitch(config)
-    asyncio.run(app.run())
+    chat_bot = StreamerShieldTwitch(config)
+    asyncio.run(chat_bot.run())

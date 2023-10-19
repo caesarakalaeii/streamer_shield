@@ -1,6 +1,6 @@
 import pickle
 
-def save_vocab(vocab, filename='vocabulary.pkl'):
+def save_vocab(vocab, filename='shield_cnn/net/vocabulary.pkl'):
     with open(filename, 'wb') as f:
         pickle.dump(vocab, f)
 

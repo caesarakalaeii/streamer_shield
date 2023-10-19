@@ -503,7 +503,7 @@ if __name__ == "__main__":
     config.black_list_location = "blacklist.json"
     config.channel_location = "joinable_channels.json"
     config.shield_url = "http://localhost:38080/api/predict"
-    config.auth_url = "http://localhost:5000/login/confirm"
+    config.auth_url = "https://shield.laeii.de/login/confirm"
     
     chat_bot = StreamerShieldTwitch(config)
     asyncio.run(chat_bot.run())

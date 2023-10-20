@@ -211,7 +211,7 @@ class StreamerShieldTwitch:
     
     async def join_chat(self, name:str):
         global twitch
-        unable_to_join = self.chat.join_room(name)
+        unable_to_join =  await self.chat.join_room(name)
         if not (unable_to_join == None):
             self.l.error(f"Unable to join {name}")
             return

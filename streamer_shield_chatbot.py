@@ -226,9 +226,10 @@ class StreamerShieldTwitch:
             self.l.passing(f"Succsessfully joined {name}")
             user = await first(twitch.get_users(logins=name))
             try:
-                await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
+                await self.eventsub.listen_channel_follow_v2(user.id, user.id, self.on_follow)
             except Exception as e:
                 self.l.error(f'Error whilst subscribin to eventsub: {e}')
+                pass
             self.list_update(name, self.channel_location, remove=True)
             return
         self.l.error(f"Succsessfully joined {name}, but no mod status")

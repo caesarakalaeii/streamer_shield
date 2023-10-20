@@ -1,14 +1,13 @@
 import asyncio 
-from asyncio import Task
-from concurrent.futures import ProcessPoolExecutor
 import json
-import multiprocessing
 import os
 import threading
+import time
+from sqlalchemy import String, select
+from sqlalchemy.orm import Session
 from quart import Quart, redirect, request
 import requests
 import numpy as np
-import sqlalchemy
 from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.helper import first
 from twitchAPI.twitch import Twitch
@@ -18,7 +17,7 @@ from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException
 from twitchAPI.oauth import UserAuthenticator
 from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
 from twitch_config import TwitchConfig
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
@@ -44,6 +43,7 @@ class StreamerShieldTwitch:
         self.channel_location = config.channel_location
         self.ban_reason = config.ban_reason
         self.l = config.logger
+        self.await_login = True
         self.auth_url = config.auth_url
         self.shield_url = config.shield_url
         self.eventsub_url = config.eventsub_url
@@ -122,9 +122,13 @@ class StreamerShieldTwitch:
         twitch = await Twitch(self.__app_id, self.__app_secret)
         auth = UserAuthenticator(twitch, TARGET_SCOPE, url=self.auth_url)
         
-        while(init_login):
-            self.l.info("Shield awaiting inital login")
-            await asyncio.sleep(3)
+        while(self.await_login):
+            try:
+                self.l.info("Shield awaiting inital login")
+                time.sleep(3)
+            except KeyboardInterrupt:
+                self.l.fail("Keyboard Interrupt, exiting") #not actually working
+                exit(1)
         self.l.passingblue("Shield inital login successful")
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch)
         await self.eventsub.unsubscribe_all()
@@ -166,8 +170,12 @@ class StreamerShieldTwitch:
         
     async def cli_run(self):
         while(self.running):
-            com = input("type help for available commands\n")
-            await self.command_handler(com)
+            try:
+                com = input("type help for available commands\n")
+                await self.command_handler(com)
+            except Exception as e:
+                self.l.error(f'Exeption in cli_run, exiting: {e.with_traceback()}')
+                exit(1)
     
     async def shield_info_cli(self):
         self.l.info('''
@@ -424,21 +432,23 @@ auth: UserAuthenticator
 TARGET_SCOPE : list
 app.secret_key = 'your_secret_key'
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'  # SQLite database
-engine = create_engine('sqlite:///users.db', echo=True, connect_args={"check_same_thread": False})
-
-# Create a new async session factory
-session = sessionmaker(bind=engine, expire_on_commit=False)
-
-# Define your SQLAlchemy model
-Base = declarative_base()
-
+class Base(DeclarativeBase):
+    pass
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
     twitch_id = Column(String(255), unique=True, nullable=False)
     access_token = Column(String(255), nullable=False)
     refresh_token = Column(String(255), nullable=False)
+
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'  # SQLite database
+engine = create_engine('sqlite:///users.db', echo=True, connect_args={"check_same_thread": False})
+
+# Create a new async session factory
+session = sessionmaker(bind=engine, expire_on_commit=False)
+# Define your SQLAlchemy model
+Base.metadata.create_all(engine)
 
 
 @app.route('/login')
@@ -469,16 +479,29 @@ async def login_confirm():
             access_token=token,
             refresh_token=refresh
         )
-        async with session() as session:
-            session.add(user)
-            await session.commit()
-        chat_bot.join_chat(name)
+        with Session(engine) as session:
+            try:
+                session.add(user)
+                session.commit()
+            except:
+                print("user found")
+                session.rollback()
+                user_old_stmt = (
+                    select(User)
+                    .where(User.id.in_([user_info.id]))
+                )
+                for user_old in session.scalars(user_old_stmt):
+                    user_old.access_token = token
+                    user_old.refresh_token = refresh
+                session.commit()
+        if not chat_bot.await_login:
+            await chat_bot.join_chat(name)
         
         
     except TwitchAPIException as e:
         return 'Failed to generate auth token', 400
     
-        
+    chat_bot.await_login = False
     return 'Sucessfully authenticated!'
 
 
@@ -516,13 +539,14 @@ if __name__ == "__main__":
     
     chat_bot = StreamerShieldTwitch(config)
     
-    process1 = multiprocessing.Process(target=app.run())
-    process2 = multiprocessing.Process(target=main())
+    
+    
+    process2 = threading.Thread(target=main)
 
-    process1.start()
+    
     process2.start()
-
-    process1.join()
+    app.run()
+    
     process2.join()
     
     

@@ -12,17 +12,16 @@ def clean_data(string):
 
 class StreamerShield:
     
-    def __init__(self, model_path, max_length, scam_threshold, user_threshold) -> None:
+    def __init__(self, model_path, vocab_path, max_length) -> None:
         print("loading model")
         self.max_length = max_length
-        self.scam_threshold = scam_threshold
-        self.user_threshold = user_threshold
+        self.vocab_path = vocab_path
         self.loaded_model = tf.keras.models.load_model(model_path)
         
         
     def preprocess(self, string, sequence_len):
         # Creating a vocab set
-        vocabulary = load_vocab()
+        vocabulary = load_vocab(self.vocab_path)
         vocab_len = len(vocabulary)
 
         # Creating dictionary that maps each character to an integer

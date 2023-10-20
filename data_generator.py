@@ -129,15 +129,15 @@ if __name__ == "__main__":
     
     users = arr[arr[:,1] == '0']
     users = np.concatenate((users, DataGen.gen_char(users, char='_')))
-    arr = np.concatenate((arr, DataGen.gen_char(users, char='_')))
+    #arr = np.concatenate((arr, DataGen.gen_char(users, char='_')))
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
+    #arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
+    arr = np.concatenate((arr, DataGen.name_gen("names.csv", 10, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 10)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 10, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 10, gen_trailing_numbers=True, insert = '_')))
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
-    arr = np.concatenate((arr, DataGen.name_gen("names.csv", 30, gen_trailing_numbers=True)))
-    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 20)))
-    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 20, gen_trailing_numbers=True)))
-    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 20, gen_trailing_numbers=True, insert = '_')))
-    arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
-    arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
+    #arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
     arr = np.concatenate((arr, DataGen.gen_gfx_prefix(arr)),axis=0)
     arr = np.concatenate((arr, DataGen.gen_gfx_suffix(arr)), axis=0)
     print(

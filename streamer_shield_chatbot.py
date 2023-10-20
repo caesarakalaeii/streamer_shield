@@ -533,9 +533,9 @@ if __name__ == "__main__":
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
     config.channel_location = "joinable_channels.json"
-    config.eventsub_url = "https://twitchtorelais.laeii.de"
+    config.eventsub_url = "https://shield.laeii.de"
     config.shield_url = "http://localhost:38080/api/predict"
-    config.auth_url = "http://localhost:5000/login/confirm"
+    config.auth_url = "http://shield.laeii.de/login/confirm"
     
     chat_bot = StreamerShieldTwitch(config)
     

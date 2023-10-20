@@ -26,4 +26,4 @@ def predict(input_string):
     return shield.predict(input_string)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=38080)
+    app.run(debug=False, port=38080)

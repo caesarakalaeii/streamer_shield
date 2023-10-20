@@ -535,7 +535,7 @@ if __name__ == "__main__":
     config.channel_location = "joinable_channels.json"
     config.eventsub_url = "https://shield.laeii.de"
     config.shield_url = "http://localhost:38080/api/predict"
-    config.auth_url = "http://shield.laeii.de/login/confirm"
+    config.auth_url = "https://shield.laeii.de/login/confirm"
     
     chat_bot = StreamerShieldTwitch(config)
     

@@ -1,5 +1,6 @@
 import asyncio 
 import json
+import math
 import os
 import threading
 import time
@@ -359,9 +360,9 @@ class StreamerShieldTwitch:
                 user = await first(twitch.get_users(logins=name))
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
-        if (not self.check_list(name, self.known_users_location)) and self.collect_data:
-            self.list_update(name, self.known_users_location)
         conf = await self.request_prediction(name)/1000
+        if (not self.check_list(name, self.known_users_location)) and self.collect_data:
+            self.list_update({name:math.floor(conf*1000)}, self.known_users_location)
         if (bool(np.round(conf))):
             if self.is_armed:
                 user = await first(twitch.get_users(logins=name))

@@ -38,16 +38,18 @@ class StreamerShieldTwitch:
         self.__app_secret = config.app_secret
         self.user_scopes = config.user_scopes
         self.user_name = config.user_name
-        self.white_list = config.white_list_location
         self.is_armed  = config.is_armed
+        self.white_list = config.white_list_location
         self.black_list = config.black_list_location
         self.channel_location = config.channel_location
+        self.known_users_location = config.known_users_location
         self.ban_reason = config.ban_reason
         self.l = config.logger
         self.await_login = True
         self.auth_url = config.auth_url
         self.shield_url = config.shield_url
         self.eventsub_url = config.eventsub_url
+        self.collect_data = config.collect_data
         self.commands = {
         "help":{
             "help": "!help: prints all commands",
@@ -357,7 +359,8 @@ class StreamerShieldTwitch:
                 user = await first(twitch.get_users(logins=name))
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
-        
+        if (not await self.check_list(name, self.known_users_location)) and self.collect_data:
+            self.list_update(name, self.known_users_location)
         conf = await self.request_prediction(name)/1000
         if (bool(np.round(conf))):
             if self.is_armed:
@@ -538,6 +541,8 @@ if __name__ == "__main__":
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
     config.channel_location = "joinable_channels.json"
+    config.known_users_location = "known_users.json"
+    config.collect_data = True
     config.eventsub_url = EVENTSUB_URL
     config.shield_url = SHIELD_URL
     config.auth_url = AUTH_URL

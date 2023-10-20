@@ -51,6 +51,7 @@ class StreamerShieldTwitch:
         self.shield_url = config.shield_url
         self.eventsub_url = config.eventsub_url
         self.collect_data = config.collect_data
+        self.admin = config.admin
         self.commands = {
         "help":{
             "help": "!help: prints all commands",
@@ -271,7 +272,7 @@ class StreamerShieldTwitch:
         await chat_command.reply("StreamerShield can only be shutdown via cli")
            
     async def arm_twitch(self, chat_command : ChatCommand):
-        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
+        if(not (chat_command.user.name == self.admin)):
             return
         await chat_command.reply("Armed StreamerShield")
         self.l.warning("Armed StreamerShield")
@@ -545,6 +546,7 @@ if __name__ == "__main__":
     config.channel_location = "joinable_channels.json"
     config.known_users_location = "known_users.json"
     config.collect_data = True
+    config.admin = 'caesarlp'
     config.eventsub_url = EVENTSUB_URL
     config.shield_url = SHIELD_URL
     config.auth_url = AUTH_URL

@@ -15,6 +15,7 @@ class TwitchConfig:
     auth_url : str
     eventsub_url : str
     collect_data : bool
+    admin : str
     model_path : str = 'shield_cnn/net/shield.h5'
     ban_reason : str = '''You've been banned by StreamerShield, if you think the was an Error, please make an unban request'''
     max_lenght : int = 30 #should be kept at 30, as the model was trained with it

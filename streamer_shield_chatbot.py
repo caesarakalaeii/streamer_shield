@@ -1,9 +1,14 @@
-import asyncio
+import asyncio 
+from asyncio import Task
+from concurrent.futures import ProcessPoolExecutor
 import json
+import multiprocessing
 import os
+import threading
 from quart import Quart, redirect, request
 import requests
 import numpy as np
+import sqlalchemy
 from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.helper import first
 from twitchAPI.twitch import Twitch
@@ -13,12 +18,12 @@ from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException
 from twitchAPI.oauth import UserAuthenticator
 from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
 from twitch_config import TwitchConfig
+from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, String, Integer
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 
-
+init_login :bool
 
 
 
@@ -106,16 +111,23 @@ class StreamerShieldTwitch:
         }
         pass
           
+    def register(self):
+        return self
     
     async def run(self):
-        global twitch, auth, app
+        global twitch, auth, app, init_login
+        
+        self.l.info("Shield Starting up")
         
         twitch = await Twitch(self.__app_id, self.__app_secret)
         auth = UserAuthenticator(twitch, TARGET_SCOPE, url=self.auth_url)
         
+        while(init_login):
+            self.l.info("Shield awaiting inital login")
+            await asyncio.sleep(3)
+        self.l.passingblue("Shield inital login successful")
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch)
         await self.eventsub.unsubscribe_all()
-        await auth.authenticate()
         self.user = await first(twitch.get_users(logins=self.user_name))
         self.chat = await Chat(twitch)
 
@@ -434,9 +446,12 @@ def login():
     return redirect(auth.return_auth_url())
 
 
+
+
+
 @app.route('/login/confirm')
 async def login_confirm():
-    global session
+    global session, chat_bot
     args = request.args
     state = request.args.get('state')
     if state != auth.state:
@@ -462,12 +477,16 @@ async def login_confirm():
         
     except TwitchAPIException as e:
         return 'Failed to generate auth token', 400
+    
+        
     return 'Sucessfully authenticated!'
 
 
     
-    
 
+ 
+def main():
+    asyncio.run(chat_bot.run())
 
 
         
@@ -496,13 +515,14 @@ if __name__ == "__main__":
     config.auth_url = "http://localhost:5000/login/confirm"
     
     chat_bot = StreamerShieldTwitch(config)
-    background_tasks = set()
-    asyncio.run(chat_bot.run())
-    app.run()
-    #flask_task = asyncio.create_task(app.run())
-    #background_tasks.add(flask_task)
-    #chat_task = asyncio.create_task(chat_bot.run())
-    #background_tasks.add(chat_task)
-    #flask_task.add_done_callback(background_tasks.discard)
-    #chat_task.add_done_callback(background_tasks.discard)
+    
+    process1 = multiprocessing.Process(target=app.run())
+    process2 = multiprocessing.Process(target=main())
+
+    process1.start()
+    process2.start()
+
+    process1.join()
+    process2.join()
+    
     

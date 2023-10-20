@@ -20,7 +20,7 @@ def percentage_scammer(data, percentage):
     return train_set #works as intended
     
 def clean_data(string):
-    string = re.sub('[^a-zA-Z0-9]', ' ',string)
+    string = re.sub('[^a-zA-Z0-9_]', ' ',string)
     string = string.lower()
     return string
 
@@ -86,7 +86,7 @@ def train(data_path, model_path ,layers = [32,32,32,1], kernel = 3, oneHot = Fal
             tf.keras.layers.Dense(1, activation='sigmoid')
         ])
 
-        model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+        model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy', tf.keras.metrics.PrecisionAtRecall(0.6)])
 
     earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', 
                                                   patience=patience, 

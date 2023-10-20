@@ -5,7 +5,7 @@ import numpy as np
 from streamer_shield import StreamerShield
 
 app = Flask(__name__)
-shield = StreamerShield("shield.h5", 32, 0.5,.05)
+shield = StreamerShield("auto_gen.h5", 31, 0.5,.05)
 
 # Create an endpoint that accepts a string and returns a float
 @app.route('/api/predict', methods=['POST'])

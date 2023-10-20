@@ -75,7 +75,7 @@ class StreamerShield:
         
     
 if __name__ == "__main__":
-    ss = StreamerShield("G:\\VS_repos\\streamer_shield\\shield.h5", 30, 0.3, 0.3)
+    ss = StreamerShield("G:\\VS_repos\\streamer_shield\\auto_gen.h5", 31, 0.5, 0.5)
     l = Logger(console_log=True)
     onehot = False
     

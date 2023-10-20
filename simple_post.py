@@ -1,7 +1,7 @@
 import requests
 
 url = "http://localhost:38080/api/predict"
-data = {"input_string": "caesarlp"}
+data = {"input_string": "rooooooberrrrrt"}
 
 response = requests.post(url, json=data)
 

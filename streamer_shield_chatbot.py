@@ -359,7 +359,7 @@ class StreamerShieldTwitch:
                 user = await first(twitch.get_users(logins=name))
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
-        if (not await self.check_list(name, self.known_users_location)) and self.collect_data:
+        if (not self.check_list(name, self.known_users_location)) and self.collect_data:
             self.list_update(name, self.known_users_location)
         conf = await self.request_prediction(name)/1000
         if (bool(np.round(conf))):

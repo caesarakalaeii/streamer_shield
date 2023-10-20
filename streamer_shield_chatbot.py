@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from quart import Quart, redirect, request
 import requests
 import numpy as np
+from end_point_config import *
 from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.helper import first
 from twitchAPI.twitch import Twitch
@@ -537,9 +538,9 @@ if __name__ == "__main__":
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
     config.channel_location = "joinable_channels.json"
-    config.eventsub_url = "https://shield.laeii.de"
-    config.shield_url = "http://localhost:38080/api/predict"
-    config.auth_url = "https://shield.laeii.de/login/confirm"
+    config.eventsub_url = EVENTSUB_URL
+    config.shield_url = SHIELD_URL
+    config.auth_url = AUTH_URL
     
     chat_bot = StreamerShieldTwitch(config)
     

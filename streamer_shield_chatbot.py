@@ -179,7 +179,7 @@ class StreamerShieldTwitch:
                 com = input("type help for available commands\n")
                 await self.command_handler(com)
             except Exception as e:
-                self.l.error(f'Exeption in cli_run, exiting: {e.with_traceback()}')
+                self.l.error(f'Exeption in cli_run, exiting: {e}')
                 exit(1)
     
     async def shield_info_cli(self):
@@ -228,7 +228,7 @@ class StreamerShieldTwitch:
             try:
                 await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow)
             except Exception as e:
-                self.l.error(f'Error whilst subscribin to eventsub: {e.with_traceback()}')
+                self.l.error(f'Error whilst subscribin to eventsub: {e}')
             self.list_update(name, self.channel_location, remove=True)
             return
         self.l.error(f"Succsessfully joined {name}, but no mod status")

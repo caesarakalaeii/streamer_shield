@@ -545,7 +545,7 @@ if __name__ == "__main__":
 
     
     process2.start()
-    app.run()
+    app.run('0.0.0.0')
     
     process2.join()
     

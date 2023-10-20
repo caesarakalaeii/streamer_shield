@@ -216,10 +216,11 @@ class StreamerShieldTwitch:
     async def join_chat(self, name:str):
         global twitch
         unable_to_join =  await self.chat.join_room(name)
+        
         if len(unable_to_join) == 0 or unable_to_join == []:
             self.l.error(f"Unable to join {name}: {unable_to_join}")
-            
-            return
+            #this is a bit funky
+            pass
         if self.chat.is_mod(name):
             self.l.passing(f"Succsessfully joined {name}")
             user = await first(twitch.get_users(logins=name))

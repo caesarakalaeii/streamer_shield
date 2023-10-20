@@ -213,7 +213,8 @@ class StreamerShieldTwitch:
         global twitch
         unable_to_join =  await self.chat.join_room(name)
         if not (unable_to_join == None):
-            self.l.error(f"Unable to join {name}")
+            self.l.error(f"Unable to join {name}: {unable_to_join}")
+            
             return
         if self.chat.is_mod(name):
             self.l.passing(f"Succsessfully joined {name}")

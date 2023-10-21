@@ -387,19 +387,27 @@ class StreamerShieldTwitch:
                 user = await first(twitch.get_users(logins=name))
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
+        #get prediction from REST 
         conf = await self.request_prediction(name)
+        
+        #if datacollectio is turned on, collect known users
         if (not self.check_list(name, self.known_users_location)) and self.collect_data:
             self.list_update({name:math.floor(conf)}, self.known_users_location)
+            
+        #check for account age    
         user = await first(twitch.get_users(logins=name))
         if await self.check_account_age(user=user):
-            self.l.passing(f'Found Accont older than {self.age_threshold} Months')
+            self.l.passing(f'Found Accont older than {self.age_threshold} Months, name : {name}, conf: {conf})')
+            return
+        
+        
         if (bool(np.round(conf/1000))):
             if self.is_armed:
                 #TODO: CHeck either for account age or follow count if possible
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return
-        self.l.passing(f'User {name} was classified as a user with conf {conf}')
+        self.l.passing(f'User {name} was classified as a human with conf {conf}')
             
     
     ### Utility functions    

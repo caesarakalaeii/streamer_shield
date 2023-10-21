@@ -1,5 +1,5 @@
 import asyncio
-from datetime import *
+from datetime import datetime 
 import json
 import math
 import os
@@ -246,7 +246,7 @@ class StreamerShieldTwitch:
             user = await first(twitch.get_users(logins=name))
             self.list_update(name, self.channel_location)
             try:
-                await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
+                await self.eventsub.listen_channel_follow_v2(user.id, user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
             except Exception as e:
                 self.l.error(f'Error whilst subscribing to eventsub: {e}')
                 pass
@@ -404,10 +404,14 @@ class StreamerShieldTwitch:
     
     ### Utility functions    
     async def check_account_age(self, user: TwitchUser):
-        current_time = date.today()
-        creation_time = user.created_at
-        newest_allowed_time = current_time - timedelta(days = self.age_threshold)
-        if creation_time < newest_allowed_time:
+        current_time = datetime.now()
+        creation_time :datetime = user.created_at
+        age_year = current_time.year - creation_time.year
+        age_months = current_time.month - creation_time.month
+        
+        if age_year > 0:
+            return True
+        elif age_months > self.age_threshold:
             return True
         return False
             

@@ -152,8 +152,9 @@ class StreamerShieldTwitch:
                 time.sleep(3)
             except KeyboardInterrupt:
                 self.l.fail("Keyboard Interrupt, exiting") #not actually working
-                exit(1)
+                raise KeyboardInterrupt("User specified shutdown")
         self.l.passingblue("Shield inital login successful")
+        self.l.passingblue("Welcome home Chief!")
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch)
         await self.eventsub.unsubscribe_all()
         self.user = await first(twitch.get_users(logins=self.user_name))
@@ -379,10 +380,10 @@ class StreamerShieldTwitch:
     ### StreamerShield Main
     async def check_user(self, name :str, room_name_id):
         if await self.check_white_list(name): 
-            self.l.info("Whitelisted user found")
+            self.l.info(f"{name} is found in whitelist")
             return
         if await self.check_black_list(name): 
-            self.l.warning("Banned user found")
+            self.l.warning(f"{name} is found in blacklist")
             if self.is_armed:
                 user = await first(twitch.get_users(logins=name))
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
@@ -403,7 +404,7 @@ class StreamerShieldTwitch:
         
         if (bool(np.round(conf/1000))):
             if self.is_armed:
-                #TODO: CHeck either for account age or follow count if possible
+                #TODO: Check either for account age or follow count if possible
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return
@@ -514,7 +515,7 @@ class User(Base):
 
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'  # SQLite database
-engine = create_engine('sqlite:///users.db', echo=True, connect_args={"check_same_thread": False})
+engine = create_engine('sqlite:///users.db', connect_args={"check_same_thread": False})
 
 # Create a new async session factory
 session = sessionmaker(bind=engine, expire_on_commit=False)

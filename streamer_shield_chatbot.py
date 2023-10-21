@@ -246,7 +246,7 @@ class StreamerShieldTwitch:
             user = await first(twitch.get_users(logins=name))
             self.list_update(name, self.channel_location)
             try:
-                await self.eventsub.listen_channel_follow_v2(user.id, user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
+                await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
             except Exception as e:
                 self.l.error(f'Error whilst subscribing to eventsub: {e}')
                 pass

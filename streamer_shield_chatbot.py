@@ -1,31 +1,33 @@
-import asyncio
-from datetime import datetime 
+import os
 import json
 import math
-import os
-import threading
 import time
-from sqlalchemy import String, select
-from sqlalchemy.orm import Session
-from quart import Quart, redirect, request
+import asyncio
 import requests
+import threading
 import numpy as np
+from datetime import datetime 
 from end_point_config import *
-from config import APP_SECRET, APP_ID, TWITCH_USER
+from sqlalchemy.orm import Session
 from twitchAPI.helper import first
+from sqlalchemy import create_engine
+from sqlalchemy import String, select
+from twitch_config import TwitchConfig
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import DeclarativeBase
+from quart import Quart, redirect, request
+from twitchAPI.oauth import UserAuthenticator
+from sqlalchemy import Column, String, Integer
 from twitchAPI.twitch import Twitch, TwitchUser
+from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.eventsub.webhook import EventSubWebhook
 from twitchAPI.object.eventsub import ChannelFollowEvent
 from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException
-from twitchAPI.oauth import UserAuthenticator
 from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
-from twitch_config import TwitchConfig
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import Column, String, Integer
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
 
 init_login :bool
+twitch: Twitch
+auth: UserAuthenticator
 
 
 
@@ -498,9 +500,8 @@ class StreamerShieldTwitch:
 
 
 app = Quart(__name__)
-twitch: Twitch
+
 chat_bot: StreamerShieldTwitch
-auth: UserAuthenticator
 TARGET_SCOPE : list
 app.secret_key = 'your_secret_key'
 

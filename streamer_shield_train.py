@@ -86,7 +86,7 @@ def train(data_path, model_path ,layers = [32,32,32,1], kernel = 3, oneHot = Fal
             tf.keras.layers.Dense(1, activation='sigmoid')
         ])
 
-        model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy', tf.keras.metrics.PrecisionAtRecall(0.6)])
+        model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
 
     earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', 
                                                   patience=patience, 

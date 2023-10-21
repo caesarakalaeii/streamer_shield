@@ -401,7 +401,7 @@ class StreamerShieldTwitch:
         #check for account age    
         user = await first(twitch.get_users(logins=name))
         if await self.check_account_age(user=user):
-            self.l.passing(f'Found Accont older than {self.age_threshold} Months, name : {name}, conf: {conf})')
+            self.l.passing(f'Found Account older than {self.age_threshold} Months, name : {name}, conf: {conf})')
             return
         
         

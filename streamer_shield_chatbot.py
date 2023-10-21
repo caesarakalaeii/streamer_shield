@@ -1,4 +1,5 @@
-import asyncio 
+import asyncio
+from datetime import datetime 
 import json
 import math
 import os
@@ -12,7 +13,7 @@ import numpy as np
 from end_point_config import *
 from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.helper import first
-from twitchAPI.twitch import Twitch
+from twitchAPI.twitch import Twitch, TwitchUser
 from twitchAPI.eventsub.webhook import EventSubWebhook
 from twitchAPI.object.eventsub import ChannelFollowEvent
 from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException
@@ -51,67 +52,85 @@ class StreamerShieldTwitch:
         self.shield_url = config.shield_url
         self.eventsub_url = config.eventsub_url
         self.collect_data = config.collect_data
+        self.age_threshold = config.age_threshold
         self.admin = config.admin
         self.commands = {
         "help":{
-            "help": "!help: prints all commands",
-            "value": False,
-            "cli_func": self.help_cli,
-            "twt_func": self.help_twitch
+                "help": "!help: prints all commands",
+                "value": False,
+                "cli_func": self.help_cli,
+                "twt_func": self.help_twitch,
+                "permissions": 0
             },
         "stop":{
-            "help": "!stop: stops the process (Not available for Twitch)",
-            "value": False,
-            "cli_func": self.stop_cli,
-            "twt_func": self.stop_twitch
+                "help": "!stop: stops the process (Not available for Twitch)",
+                "value": False,
+                "cli_func": self.stop_cli,
+                "twt_func": self.stop_twitch,
+                "permissions": 10
         },
         "arm":{
                 "help": "!arm: enables StreamerShield to ban users",
                 "value": False,
                 "cli_func": self.arm_cli,
-                "twt_func": self.arm_twitch
+                "twt_func": self.arm_twitch,
+                "permissions": 10
                 },
         "disarm":{
                 "help": "!disarm: stops StreamerShield from banning users",
                 "value": False,
                 "cli_func": self.disarm_cli,
-                "twt_func": self.disarm_twitch
+                "twt_func": self.disarm_twitch,
+                "permissions": 5
+                },
+        "leave_me":{
+                "help": "!leave_me: leaves this chat",
+                "value": False,
+                "cli_func": self.leave_cli,
+                "twt_func": self.leave_me_twitch,
+                "permissions": 5
                 },
         "leave":{
                 "help": "!leave chat_name: leaves a chat",
                 "value": True,
                 "cli_func": self.leave_cli,
-                "twt_func": self.leave_twitch
+                "twt_func": self.leave_twitch,
+                "permissions": 10
                 },
         "whitelist":{
                 "help": "!whitelist user_name: whitelist user",
                 "value": True,
                 "cli_func": self.whitelist_cli,
-                "twt_func": self.whitelist_twitch
+                "twt_func": self.whitelist_twitch,
+                "permissions": 5
                 },
         "unwhitelist":{
                 "help": "!unwhitelist user_name: removes user from whitelist",
                 "value": True,
                 "cli_func": self.unwhitelist_cli,
-                "twt_func": self.unwhitelist_twitch
+                "twt_func": self.unwhitelist_twitch,
+                "permissions": 5
                 },
         "blacklist":{
                 "help": "!blacklist user_name: blacklist user",
                 "value": True,
                 "cli_func": self.blacklist_cli,
-                "twt_func": self.blacklist_twitch
+                "twt_func": self.blacklist_twitch,
+                "permissions": 5
                 },
         "unblacklist":{
                 "help": "!unblacklist user_name: removes user from blacklist",
                 "value": True,
                 "cli_func": self.unblacklist_cli,
-                "twt_func": self.unblacklist_twitch
+                "twt_func": self.unblacklist_twitch,
+                "permissions": 5
                 }, 
         "streamershield":{
             "help": "!streamershield : prints info about the shield",
                 "value": False,
                 "cli_func": self.shield_info_cli,
-                "twt_func": self.shield_info_twitch
+                "twt_func": self.shield_info_twitch,
+                "permissions": 0
                 }
         }
         pass
@@ -261,62 +280,66 @@ class StreamerShieldTwitch:
          await chat_command.reply('StreamerShield is the AI ChatBot to rid twitch once and for all from scammers. More information here: https://linktr.ee/caesarlp')
     
     async def help_twitch(self, chat_command : ChatCommand):
-        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
-            return
+        permission = await self.generate_permissions(chat_command)
         reply = ''
         for command, value in self.commands.items():
+            if(permission < value['permissions']):
+                continue
             reply += f'{value["help"]}; '
         await chat_command.reply(reply)
         
     async def stop_twitch(self, chat_command:ChatCommand):
-        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
-            return
-        await chat_command.reply("StreamerShield can only be shutdown via cli")
+        if await self.verify_permission(chat_command, "disarm"):
+            await chat_command.reply("StreamerShield can only be shutdown via cli")
            
     async def arm_twitch(self, chat_command : ChatCommand):
-        if(not (chat_command.user.name == self.admin)):
-            return
-        await chat_command.reply("Armed StreamerShield")
-        self.l.warning("Armed StreamerShield")
-        self.is_armed = True
+        if await self.verify_permission(chat_command, "arm"):
+            await chat_command.reply("Armed StreamerShield")
+            self.l.warning("Armed StreamerShield")
+            self.is_armed = True
         
     async def disarm_twitch(self, chat_command : ChatCommand):
-        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
-            return
-        await chat_command.reply("Disarmed StreamerShield")
-        self.l.warning("Disarmed StreamerShield")
-        self.is_armed = False
+        if await self.verify_permission(chat_command, "disarm"):
+            await chat_command.reply("Disarmed StreamerShield")
+            self.l.warning("Disarmed StreamerShield")
+            self.is_armed = False
     
-   
+    async def leave_me_twitch(self, chat_command : ChatCommand):
+        if await self.verify_permission(
+            chat_command, "unwhitelist") and (
+            not chat_command.parameter == chat_command.room.name):
+            await chat_command.reply("Leaving... Bye!")
+            self.list_update(chat_command.parameter, self.channel_location, remove=True)
+            await self.chat.leave_room(chat_command.parameter)
             
     async def leave_twitch(self, chat_command : ChatCommand):
-        if(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
-            return
-        if(not chat_command.parameter == chat_command.room.name):
+        if await self.verify_permission(
+            chat_command, "leave") and (
+            not chat_command.parameter == chat_command.room.name):
             await chat_command.reply("Leaving... Bye!")
             self.list_update(chat_command.parameter, self.channel_location, remove=True)
             await self.chat.leave_room(chat_command.parameter)
         
     async def whitelist_twitch(self, chat_command : ChatCommand):
-        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+        if await self.verify_permission(chat_command, "whitelist"):
             name = chat_command.parameter.replace("@", "")
             self.list_update(name, self.white_list)
             await chat_command.reply(f'User {name} is now whitelisted')
         
     async def unwhitelist_twitch(self, chat_command : ChatCommand):
-        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+        if await self.verify_permission(chat_command, "unwhitelist"):
             name = chat_command.parameter.replace("@", "")
             self.list_update(name, self.white_list, remove = True)
             await chat_command.reply(f'User {name} is no longer whitelisted')
             
     async def blacklist_twitch(self, chat_command : ChatCommand):
-        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+        if await self.verify_permission(chat_command, "blacklist"):
             name = chat_command.parameter.replace("@", "")
             self.list_update(name, self.black_list)
             await chat_command.reply(f'User {name} is now blacklisted')
         
     async def unblacklist_twitch(self, chat_command : ChatCommand):
-        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+        if await self.verify_permission(chat_command, "unblacklist"):
             name = chat_command.parameter.replace("@", "")
             self.list_update(name, self.black_list, remove = True)
             await chat_command.reply(f'User {name} is no longer blacklisted')
@@ -364,20 +387,49 @@ class StreamerShieldTwitch:
                 user = await first(twitch.get_users(logins=name))
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
-        conf = await self.request_prediction(name)/1000
+        conf = await self.request_prediction(name)
         if (not self.check_list(name, self.known_users_location)) and self.collect_data:
-            self.list_update({name:math.floor(conf*1000)}, self.known_users_location)
-        if (bool(np.round(conf))):
+            self.list_update({name:math.floor(conf)}, self.known_users_location)
+        user = await first(twitch.get_users(logins=name))
+        if await self.check_account_age(user=user):
+            self.l.passing(f'Found Accont older than {self.age_threshold} Months')
+        if (bool(np.round(conf/1000))):
             if self.is_armed:
-                user = await first(twitch.get_users(logins=name))
                 #TODO: CHeck either for account age or follow count if possible
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return
         self.l.passing(f'User {name} was classified as a user with conf {conf}')
             
-        
+    
     ### Utility functions    
+    async def check_account_age(self, user: TwitchUser | None = None, user_id: str | None = None):
+        if not user:
+            user = await first(twitch.get_users(user_ids=[user_id]))
+        current_time = datetime.now()
+        creation_time :datetime = user.created_at()
+        age_year = current_time.year - creation_time.year
+        age_months = current_time.month - creation_time.month
+        
+        if age_year > 0:
+            return True
+        elif age_months > self.age_threshold:
+            return True
+        return False
+            
+    
+    async def generate_permissions(self, chat_command : ChatCommand):
+        if(chat_command.user.name == self.admin):
+            permission = 10
+        elif(chat_command.user.mod or chat_command.user.name == chat_command.room.name):
+            permission = 5
+        elif(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
+            permission = 0
+        return permission
+    
+    async def verify_permission(self, chat_command : ChatCommand, command : str):
+        permission = await self.generate_permissions(chat_command)
+        return self.commands[command]["permissions"] <= permission
     
     async def user_refresh(token: str, refresh_token: str):
         print(f'my new user token is: {token}')
@@ -396,7 +448,7 @@ class StreamerShieldTwitch:
         return name in l
         
     def list_update(self, name, list_name, remove=False):
-        l = self.load_list(list_name)
+        l : list = self.load_list(list_name)
         if name in l and not remove:
             return
         if remove:

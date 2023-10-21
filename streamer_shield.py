@@ -1,4 +1,5 @@
 
+import math
 from vocab import load_vocab
 import tensorflow as tf
 from logger import Logger
@@ -64,17 +65,17 @@ class StreamerShield:
         else:
             for user in test_names_users:
                 conf = self.predict(user)[0][0]
-                correctly_identified_users_bool.append((conf < self.user_threshold) == True)
+                correctly_identified_users_bool.append(not bool(np.round(conf)))
                 correctly_identified_users_conf.append(conf)
             for user in test_names_scammers:
                 conf = self.predict(user)[0][0]
-                correctly_identified_scammers_bool.append((conf > self.scam_threshold) == True)
+                correctly_identified_scammers_bool.append(bool(np.round(conf)))
                 correctly_identified_scammers_conf.append(conf)
         return correctly_identified_users_bool,correctly_identified_users_conf,correctly_identified_scammers_bool, correctly_identified_scammers_conf
         
     
 if __name__ == "__main__":
-    ss = StreamerShield("G:\\VS_repos\\streamer_shield\\auto_gen.h5", 31, 0.5, 0.5)
+    ss = StreamerShield("G:\\VS_repos\\streamer_shield\\auto_gen.h5","vocabulary.pkl", 29)
     l = Logger(console_log=True)
     onehot = False
     
@@ -116,9 +117,9 @@ if __name__ == "__main__":
                 else:
                     print(f"User {name} is a mystery! \nuser_confidence = {is_scammer[0][0]}\nscam_confidence = {is_scammer[0][1]}")
             else:
-                if is_scammer[0][0]<ss.user_threshold:
+                if bool(np.round(is_scammer[0][0])):
                     print(f"User {name} is not a scammer! \nconfidence = {is_scammer[0][0]}")
-                elif is_scammer[0][0]>ss.scam_threshold:
+                elif bool(np.round(is_scammer[0][0])):
                     print(f"User {name} is a scammer! \nconfidence = {is_scammer[0][0]}")
                 else:
                     print(f"User {name} is a mystery! \nconfidence = {is_scammer[0][0]}")

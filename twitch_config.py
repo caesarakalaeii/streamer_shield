@@ -16,9 +16,6 @@ class TwitchConfig:
     eventsub_url : str
     collect_data : bool
     admin : str
-    model_path : str = 'shield_cnn/net/shield.h5'
+    age_threshold : int = 6
     ban_reason : str = '''You've been banned by StreamerShield, if you think the was an Error, please make an unban request'''
-    max_lenght : int = 30 #should be kept at 30, as the model was trained with it
-    scammer_threshold : int = 0.5 #only used for test function, not used for evaluation, yet
-    user_threshold : int = 0.5 #only used for test function, not used for evaluation, yet
     logger : Logger = Logger(console_log=True)

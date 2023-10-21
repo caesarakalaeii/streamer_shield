@@ -405,7 +405,7 @@ class StreamerShieldTwitch:
     ### Utility functions    
     async def check_account_age(self, user: TwitchUser):
         current_time = date.today()
-        creation_time = user.created_at()
+        creation_time = user.created_at
         newest_allowed_time = current_time - timedelta(days = self.age_threshold)
         if creation_time < newest_allowed_time:
             return True

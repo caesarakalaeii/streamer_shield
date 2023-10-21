@@ -403,9 +403,7 @@ class StreamerShieldTwitch:
             
     
     ### Utility functions    
-    async def check_account_age(self, user: TwitchUser | None = None, user_id: str | None = None):
-        if not user:
-            user = await first(twitch.get_users(user_ids=[user_id]))
+    async def check_account_age(self, user: TwitchUser):
         current_time = datetime.now()
         creation_time :datetime = user.created_at()
         age_year = current_time.year - creation_time.year

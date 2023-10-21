@@ -249,7 +249,7 @@ class StreamerShieldTwitch:
             user = await first(twitch.get_users(logins=name))
             self.list_update(name, self.channel_location)
             try:
-                await self.eventsub.listen_channel_follow_v2(user.id, user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
+                await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
             except Exception as e:
                 self.l.error(f'Error whilst subscribing to eventsub: {e}')
                 pass
@@ -391,12 +391,13 @@ class StreamerShieldTwitch:
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
             return
         #get prediction from REST 
-        conf = await self.request_prediction(name)
+        conf = await self.request_prediction(name) #will come in *1000 for use in json
         
         #if datacollectio is turned on, collect known users
         if (not self.check_list(name, self.known_users_location)) and self.collect_data:
             self.list_update({name:math.floor(conf)}, self.known_users_location)
             
+        conf = conf/1000 #turn into actual conf 0...1
         #check for account age    
         user = await first(twitch.get_users(logins=name))
         if await self.check_account_age(user=user):
@@ -404,7 +405,7 @@ class StreamerShieldTwitch:
             return
         
         
-        if (bool(np.round(conf/1000))):
+        if (bool(np.round(conf))):
             if self.is_armed:
                 #TODO: Check either for account age or follow count if possible
                 await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
@@ -527,7 +528,6 @@ Base.metadata.create_all(engine)
 @app.route('/login')
 def login():
     return redirect(auth.return_auth_url())
-
 
 
 

@@ -218,10 +218,10 @@ class StreamerShieldTwitch:
         global twitch
         unable_to_join =  await self.chat.join_room(name)
         
-        if not unable_to_join :
+        if unable_to_join :
             self.l.error(f"Unable to join {name}: {unable_to_join}")
             #this is a bit funky
-            pass
+            return f"Unable to join {name}: {unable_to_join}"
         if self.chat.is_mod(name):
             self.l.passing(f"Succsessfully joined {name}")
             user = await first(twitch.get_users(logins=name))
@@ -229,10 +229,11 @@ class StreamerShieldTwitch:
             try:
                 await self.eventsub.listen_channel_follow_v2(user.id, user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
             except Exception as e:
-                self.l.error(f'Error whilst subscribin to eventsub: {e}')
+                self.l.error(f'Error whilst subscribing to eventsub: {e}')
                 pass
-            return
+            return f"Succsessfully joined {name}"
         self.l.error(f"Succsessfully joined {name}, but no mod status")
+        return f"Succsessfully joined {name}, but no mod status"
             
     async def leave_cli(self, name:str):
         self.chat.leave_room(name)
@@ -507,14 +508,14 @@ async def login_confirm():
                     user_old.refresh_token = refresh
                 session.commit()
         if not chat_bot.await_login:
-            await chat_bot.join_chat(name)
+            ret_val =  await chat_bot.join_chat(name)
         
         
     except TwitchAPIException as e:
         return 'Failed to generate auth token', 400
     
     chat_bot.await_login = False
-    return 'Sucessfully authenticated!'
+    return ret_val
 
 
     

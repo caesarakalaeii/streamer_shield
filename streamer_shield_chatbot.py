@@ -509,7 +509,8 @@ async def login_confirm():
                 session.commit()
         if not chat_bot.await_login:
             ret_val =  await chat_bot.join_chat(name)
-        
+        else:
+            ret_val = "Welcome home chief!"
         
     except TwitchAPIException as e:
         return 'Failed to generate auth token', 400

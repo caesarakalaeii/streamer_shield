@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime 
+from datetime import *
 import json
 import math
 import os
@@ -404,14 +404,10 @@ class StreamerShieldTwitch:
     
     ### Utility functions    
     async def check_account_age(self, user: TwitchUser):
-        current_time = datetime.now()
+        current_time = date.today()
         creation_time :datetime = user.created_at()
-        age_year = current_time.year - creation_time.year
-        age_months = current_time.month - creation_time.month
-        
-        if age_year > 0:
-            return True
-        elif age_months > self.age_threshold:
+        newest_allowed_time = current_time - timedelta(days = self.age_threshold)
+        if creation_time < newest_allowed_time:
             return True
         return False
             

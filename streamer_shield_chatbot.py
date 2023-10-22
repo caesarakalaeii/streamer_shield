@@ -15,7 +15,7 @@ from sqlalchemy import String, select
 from twitch_config import TwitchConfig
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from quart import Quart, redirect, request
+from quart import Quart, make_response, redirect, request, Response
 from twitchAPI.oauth import UserAuthenticator
 from sqlalchemy import Column, String, Integer
 from twitchAPI.twitch import Twitch, TwitchUser
@@ -540,7 +540,19 @@ Base.metadata.create_all(engine)
 def login():
     return redirect(auth.return_auth_url())
 
+@app.route('/callback',  methods=['POST'])
+async def callback():
+    req = await request.get_data()
 
+    # Wandeln Sie den Byte-String in einen regulären (Unicode) String um
+    unicode_string = req.decode('utf-8')
+
+    # Verwenden Sie das json-Modul, um den String in ein Python-Dictionary umzuwandeln
+    req_dict = json.loads(unicode_string)
+    challenge = req_dict["challenge"]
+    response = await make_response(challenge)
+    response.headers['Content-Type'] = 'text/plain'
+    return response
 
 
 @app.route('/login/confirm')

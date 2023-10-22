@@ -159,6 +159,7 @@ class StreamerShieldTwitch:
         self.l.passingblue("Welcome home Chief!")
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch)
         await self.eventsub.unsubscribe_all()
+        self.eventsub.start()
         self.user = await first(twitch.get_users(logins=self.user_name))
         self.chat = await Chat(twitch)
 

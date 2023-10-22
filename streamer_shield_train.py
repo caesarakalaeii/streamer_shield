@@ -2,7 +2,7 @@ import re
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from vocab import save_vocab
+from vocab import load_vocab, save_vocab
 import classification_helper
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
@@ -26,11 +26,12 @@ def clean_data(string):
 
 
 # Preprocess the string data to adapt for the CNN model
-def preprocess_string_data(strings, sequence_len):
+def preprocess_string_data(strings, sequence_len , vocab_path):
     # Creating a vocab set
     vocabulary = set(''.join(strings))
-    save_vocab(vocabulary)
+    save_vocab(vocabulary, filename=vocab_path)
     vocab_len = len(vocabulary)
+    vocabulary = load_vocab(filename=vocab_path)#vocab changes after loading for some reason
 
     # Creating dictionary that maps each character to an integer
     char_index = dict((c, i) for i, c in enumerate(vocabulary))
@@ -48,7 +49,7 @@ def preprocess_string_data(strings, sequence_len):
 
 # Assuming your raw data looks like this
 # It should be replaced with your actual dataset
-def train(data_path, model_path ,layers = [32,32,32,1], kernel = 3, oneHot = False,balancing = 0.5,test_size = 0.3,  sequence_len = 25, patience = 5, epochs = 20):
+def train(data_path, model_path,vocabulary_path ,layers = [32,32,32,1], kernel = 3, oneHot = False,balancing = 0.5,test_size = 0.3,  sequence_len = 25, patience = 5, epochs = 20):
     tf.config.list_physical_devices('GPU')
     train_data = np.array(classification_helper.load_csv(data_path))
     #train_data = percentage_scammer(train_data, balancing)
@@ -58,7 +59,7 @@ def train(data_path, model_path ,layers = [32,32,32,1], kernel = 3, oneHot = Fal
     
 
     
-    int_strings, vocab_len = preprocess_string_data(train_data[:,0], sequence_len)
+    int_strings, vocab_len = preprocess_string_data(train_data[:,0], sequence_len, vocabulary_path)
     if oneHot:
         encoder = OneHotEncoder(sparse=False)
         int_labels = encoder.fit_transform(np.array(train_data[:,1]).reshape(-1, 1))

@@ -75,7 +75,7 @@ class StreamerShield:
         
     
 if __name__ == "__main__":
-    ss = StreamerShield("G:\\VS_repos\\streamer_shield\\auto_gen.h5","vocabulary.pkl", 29)
+    ss = StreamerShield("attempt_1.h5","vocabulary_1.pkl", 25)
     l = Logger(console_log=True)
     onehot = False
     
@@ -117,7 +117,7 @@ if __name__ == "__main__":
                 else:
                     print(f"User {name} is a mystery! \nuser_confidence = {is_scammer[0][0]}\nscam_confidence = {is_scammer[0][1]}")
             else:
-                if bool(np.round(is_scammer[0][0])):
+                if bool(not np.round(is_scammer[0][0])):
                     print(f"User {name} is not a scammer! \nconfidence = {is_scammer[0][0]}")
                 elif bool(np.round(is_scammer[0][0])):
                     print(f"User {name} is a scammer! \nconfidence = {is_scammer[0][0]}")

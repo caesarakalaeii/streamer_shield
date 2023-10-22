@@ -543,7 +543,7 @@ def login():
 @app.route('/callback',  methods=['POST'])
 async def callback():
     req = await request.get_data()
-
+    print(req)
     # Wandeln Sie den Byte-String in einen regulären (Unicode) String um
     unicode_string = req.decode('utf-8')
 

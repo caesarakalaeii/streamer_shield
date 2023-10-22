@@ -157,9 +157,12 @@ class StreamerShieldTwitch:
                 raise KeyboardInterrupt("User specified shutdown")
         self.l.passingblue("Shield inital login successful")
         self.l.passingblue("Welcome home Chief!")
+        
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch)
         await self.eventsub.unsubscribe_all()
         self.eventsub.start()
+        self.l.passingblue("Started EventSub")
+        
         self.user = await first(twitch.get_users(logins=self.user_name))
         self.chat = await Chat(twitch)
 
@@ -250,6 +253,7 @@ class StreamerShieldTwitch:
             user = await first(twitch.get_users(logins=name))
             self.list_update(name, self.channel_location)
             try:
+                self.l.info(f"Initializing Follow ESub")
                 await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
             except EventSubSubscriptionConflict as e:
                 self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionConflict {e}')

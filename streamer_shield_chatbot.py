@@ -158,7 +158,7 @@ class StreamerShieldTwitch:
         self.l.passingblue("Shield inital login successful")
         self.l.passingblue("Welcome home Chief!")
         
-        self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch)
+        self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch, revocation_handler=self.esub_revoked)
         await self.eventsub.unsubscribe_all()
         self.eventsub.start()
         self.l.passingblue("Started EventSub")
@@ -184,7 +184,8 @@ class StreamerShieldTwitch:
         
         await self.cli_run()
         
-        
+    async def esub_revoked(self, diction : dict):
+        self.l.error(f"EventSub was revoked {diction}")
             
             
     ### CLI Command Handling

@@ -6,7 +6,7 @@ from streamer_shield_train import train
 if __name__ == "__main__":
     l= Logger(console_log=True)
     layers = [32, 16, 8]
-    attempt = 2
+    attempt = 3
     sequence_len = 25
     train("generated_data.csv", f"attempt_{attempt}.h5",f"vocabulary_{attempt}.pkl", layers=layers, kernel=5, patience = 2, epochs = 10, sequence_len=sequence_len)
     ss = StreamerShield(f"attempt_{attempt}.h5", f"vocabulary_{attempt}.pkl",sequence_len)

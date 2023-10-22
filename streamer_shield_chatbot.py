@@ -391,7 +391,7 @@ class StreamerShieldTwitch:
        
     async def on_follow(self, data: ChannelFollowEvent):
         name = data.event.user_name
-        
+        self.l.passing(f"WE GOT A FOLLOW!!!!! {name}")
         await self.check_user(name, data.event.broadcaster_user_id)
     
     

@@ -22,7 +22,7 @@ from twitchAPI.twitch import Twitch, TwitchUser
 from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.eventsub.webhook import EventSubWebhook
 from twitchAPI.object.eventsub import ChannelFollowEvent
-from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException
+from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException, EventSubSubscriptionConflict, EventSubSubscriptionError, EventSubSubscriptionTimeout, TwitchBackendException
 from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
 
 init_login :bool
@@ -251,9 +251,19 @@ class StreamerShieldTwitch:
             self.list_update(name, self.channel_location)
             try:
                 await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
-            except Exception as e:
-                self.l.error(f'Error whilst subscribing to eventsub: {e}')
+            except EventSubSubscriptionConflict as e:
+                self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionConflict {e}')
                 pass
+            except EventSubSubscriptionTimeout as e:
+                self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionTimeout {e}')
+                pass
+            except EventSubSubscriptionError as e:
+                self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionError {e}')
+                pass
+            except TwitchBackendException as e:
+                self.l.error(f'Error whilst subscribing to eventsub: TwitchBackendException {e}')
+                pass
+            
             return f"Succsessfully joined {name}"
         self.l.error(f"Succsessfully joined {name}, but no mod status")
         return f"Succsessfully joined {name}, but no mod status"

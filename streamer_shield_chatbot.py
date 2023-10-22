@@ -543,13 +543,13 @@ def login():
 @app.route('/callback',  methods=['POST'])
 async def callback():
     req = await request.get_data()
-    print(req)
     # Wandeln Sie den Byte-String in einen regulären (Unicode) String um
     unicode_string = req.decode('utf-8')
 
     # Verwenden Sie das json-Modul, um den String in ein Python-Dictionary umzuwandeln
     req_dict = json.loads(unicode_string)
     challenge = req_dict["challenge"]
+    print(challenge)
     response = await make_response(challenge)
     response.headers['Content-Type'] = 'text/plain'
     return response

@@ -3,7 +3,7 @@
 *.log
 config.py
 *token*
-*.json
+
 instance/*
 *.db
 end_point_config.py

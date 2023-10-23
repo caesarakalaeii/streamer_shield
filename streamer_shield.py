@@ -75,7 +75,7 @@ class StreamerShield:
         
     
 if __name__ == "__main__":
-    ss = StreamerShield("attempt_4.h5","shield_vocab.json", 25)
+    ss = StreamerShield("attempt_4.h5","shield_vocab.json", 29)
     l = Logger(console_log=True)
     onehot = False
     

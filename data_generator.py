@@ -139,8 +139,9 @@ if __name__ == "__main__":
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
-    #arr = np.concatenate((arr, DataGen.gen_gfx_prefix(arr)),axis=0)
-    #arr = np.concatenate((arr, DataGen.gen_gfx_suffix(arr)), axis=0)
+    arr = np.concatenate((arr, DataGen.gen_gfx_prefix(arr)),axis=0)
+    arr = np.concatenate((arr, DataGen.gen_gfx_suffix(arr)), axis=0)
+    arr = np.concatenate((arr, [["abcdefghijklm", "0"],["nopqrtsuvwxyz", "0"], ["0987654321", "0"]]), axis=0)
     print(
         f'''{math.floor((np.count_nonzero(arr == "1")/len(arr))*100)}% of the Dataset are scammers
         Of that {raw_data_scam} were not generated

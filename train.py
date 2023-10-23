@@ -6,10 +6,10 @@ from streamer_shield_train import train
 if __name__ == "__main__":
     l= Logger(console_log=True)
     layers = [32, 16, 8]
-    attempt = 3
-    sequence_len = 25
-    train("generated_data.csv", f"attempt_{attempt}.h5",f"vocabulary_{attempt}.pkl", layers=layers, kernel=5, patience = 2, epochs = 10, sequence_len=sequence_len)
-    ss = StreamerShield(f"attempt_{attempt}.h5", f"vocabulary_{attempt}.pkl",sequence_len)
+    attempt = 4
+    sequence_len = 29
+    train("generated_data.csv", f"attempt_{attempt}.h5",f"vocabulary_{attempt}.json", layers=layers, kernel=5, patience = 2, epochs = 10, sequence_len=sequence_len)
+    ss = StreamerShield(f"attempt_{attempt}.h5", f"vocabulary_{attempt}.json",sequence_len)
     correctly_identified_users_bool,correctly_identified_users_conf,correctly_identified_scammers_bool, correctly_identified_scammers_conf = ss.test(False)
     user_perc = 0
     for user in correctly_identified_users_bool:

@@ -20,6 +20,7 @@ def calculate():
 
         return jsonify({'result': np.floor(result[0][0]*1000)})
     except Exception as e:
+        print(e)
         return jsonify({'error': str(e)}), 400
 
 def predict(input_string):

@@ -128,13 +128,13 @@ if __name__ == "__main__":
     raw_data_scam = np.count_nonzero(arr == "1")
     
     users = arr[arr[:,1] == '0']
-    #users = np.concatenate((users, DataGen.gen_char(users, char='_')))
+    users = np.concatenate((users, DataGen.gen_char(users, char='_')))
     #arr = np.concatenate((arr, DataGen.gen_char(users, char='_')))
     arr = np.concatenate((arr, DataGen.randomize_numbers(users)), axis=0)
-    #arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
-    arr = np.concatenate((arr, DataGen.name_gen("names.csv", 2000, gen_trailing_numbers=True)))
-    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 2000)))
-    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 2000, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
+    arr = np.concatenate((arr, DataGen.name_gen("names.csv", 200, gen_trailing_numbers=True)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 200)))
+    arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 200, gen_trailing_numbers=True)))
     #arr = np.concatenate((arr, DataGen.full_name_gen("names.csv", "surnames.csv", 1000, gen_trailing_numbers=True, insert = '_')))
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)
     arr = np.concatenate((arr, DataGen.randomize_numbers(arr)), axis=0)

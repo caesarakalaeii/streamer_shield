@@ -401,7 +401,7 @@ class StreamerShieldTwitch:
             
         conf = await self.request_prediction(name) #will come in *1000 for use in json
             
-        await chat_command.reply(f'{name} {conf/100}% a scammer')
+        await chat_command.reply(f'@{name} is to {conf/100}% a scammer')
         
     async def pat_twitch(self, chat_command : ChatCommand):
         self_pat = False
@@ -412,11 +412,16 @@ class StreamerShieldTwitch:
         if not name:
             self_pat = True
             name = chat_command.user.name
-          
+        l = self.load_list(self.known_users_location)
+        for item in l:
+            if "pat" in item:
+                pats = item["pat"]
+        pats += 1
+        self.list_update(["pat", pats], self.known_users_location)
         if self_pat:
-            await chat_command.reply(f"You just gave yourself a pat on the back! well deserved LoveYourself ")
+            await chat_command.reply(f"You just gave yourself a pat on the back! well deserved LoveYourself {pats} pats have been given")
             return
-        await chat_command.reply(f'@{chat_command.user.name} gives @{name} a pat! peepoPat')
+        await chat_command.reply(f'@{chat_command.user.name} gives @{name} a pat! peepoPat {pats} pats have been given')
     ###Event Subs and Chat events
     
     async def on_ready(self,ready_event: EventData):
@@ -465,7 +470,7 @@ class StreamerShieldTwitch:
         
         #if datacollectio is turned on, collect known users
         if (not self.check_list(name, self.known_users_location)) and self.collect_data:
-            self.list_update({name:math.floor(conf)}, self.known_users_location)
+            self.list_update({"user":name, "conf":math.floor(conf)}, self.known_users_location)
             
         conf = conf/1000 #turn into actual conf 0...1
         #check for account age    
@@ -530,12 +535,17 @@ class StreamerShieldTwitch:
         
     def list_update(self, name, list_name, remove=False):
         l : list = self.load_list(list_name)
-        if name in l and not remove:
-            return
-        if remove:
-            l.remove(name)
+        if name[0] == "pat": 
+            for item in l:
+                if "pat" in item:
+                    item["pat"] = name[1]
         else:
-            l.append(name)
+            if name in l and not remove:
+                return
+            if remove:
+                l.remove(name)
+            else:
+                l.append(name)
         self.write_list(l, list_name)
 
     def write_list(self, name_list, file_path):

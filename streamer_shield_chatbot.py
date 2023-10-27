@@ -325,7 +325,7 @@ class StreamerShieldTwitch:
     
     async def leave_me_twitch(self, chat_command : ChatCommand):
         if await self.verify_permission(
-            chat_command, "unwhitelist") and (
+            chat_command, "leave_me") and (
             not chat_command.parameter == chat_command.room.name):
             await chat_command.reply("Leaving... Bye!")
             self.list_update(chat_command.parameter, self.channel_location, remove=True)

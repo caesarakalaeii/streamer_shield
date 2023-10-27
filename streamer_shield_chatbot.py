@@ -50,6 +50,7 @@ class StreamerShieldTwitch:
         self.ban_reason = config.ban_reason
         self.l = config.logger
         self.await_login = True
+        self.even_subs = []
         self.auth_url = config.auth_url
         self.shield_url = config.shield_url
         self.eventsub_url = config.eventsub_url
@@ -137,8 +138,6 @@ class StreamerShieldTwitch:
         }
         pass
           
-    def register(self):
-        return self
     
     async def run(self):
         global twitch, auth, app, init_login
@@ -255,6 +254,7 @@ class StreamerShieldTwitch:
             self.list_update(name, self.channel_location)
             try:
                 self.l.info(f"Initializing Follow ESub")
+                
                 await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
             except EventSubSubscriptionConflict as e:
                 self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionConflict {e}')
@@ -404,7 +404,7 @@ class StreamerShieldTwitch:
             self.l.warning(f"{name} is found in blacklist")
             if self.is_armed:
                 user = await first(twitch.get_users(logins=name))
-                await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
+                await twitch.ban_user(room_name_id, room_name_id, user.id, self.ban_reason)
             return
         #get prediction from REST 
         conf = await self.request_prediction(name) #will come in *1000 for use in json
@@ -424,7 +424,7 @@ class StreamerShieldTwitch:
         if (bool(np.round(conf))):
             if self.is_armed:
                 #TODO: Check either for account age or follow count if possible
-                await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason)
+                await twitch.ban_user(room_name_id, room_name_id, user.id, self.ban_reason)
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return
         self.l.passing(f'User {name} was classified as a human with conf {conf}')
@@ -545,19 +545,6 @@ Base.metadata.create_all(engine)
 def login():
     return redirect(auth.return_auth_url())
 
-@app.route('/callback',  methods=['POST'])
-async def callback():
-    req = await request.get_data()
-    # Wandeln Sie den Byte-String in einen regulären (Unicode) String um
-    unicode_string = req.decode('utf-8')
-
-    # Verwenden Sie das json-Modul, um den String in ein Python-Dictionary umzuwandeln
-    req_dict = json.loads(unicode_string)
-    challenge = req_dict["challenge"]
-    print(challenge)
-    response = await make_response(challenge)
-    response.headers['Content-Type'] = 'text/plain'
-    return response
 
 
 @app.route('/login/confirm')

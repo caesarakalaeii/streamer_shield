@@ -417,7 +417,7 @@ class StreamerShieldTwitch:
             if "pat" in item:
                 pats = item["pat"]
         pats += 1
-        self.list_update(["pat", pats], self.known_users_location)
+        self.list_update({"pat": pats}, self.known_users_location)
         if self_pat:
             await chat_command.reply(f"You just gave yourself a pat on the back! well deserved LoveYourself {pats} pats have been given")
             return
@@ -542,10 +542,13 @@ class StreamerShieldTwitch:
                 l.remove(name)
             else:
                 l.append(name)
-        elif name[0] == "pat": 
-            for item in l:
-                if "pat" in item:
-                    item["pat"] = name[1]
+        try:
+            if name["pat"]: 
+                for item in l:
+                    if "pat" in item:
+                        item["pat"] = name["pat"]
+        except:
+            pass
         self.write_list(l, list_name)
 
     def write_list(self, name_list, file_path):

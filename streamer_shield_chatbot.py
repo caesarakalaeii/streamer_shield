@@ -414,7 +414,7 @@ class StreamerShieldTwitch:
             name = chat_command.user.name
           
         if self_pat:
-            await chat_command.reply(f"@{name} got a pat! peepoPat")
+            await chat_command.reply(f"You just gave yourself a pat on the back! well deserved LoveYourself ")
             return
         await chat_command.reply(f'@{chat_command.user.name} gives @{name} a pat! peepoPat')
     ###Event Subs and Chat events
@@ -425,7 +425,7 @@ class StreamerShieldTwitch:
         await ready_event.chat.join_room(channels)
     
     async def on_joined(self, joined_event: JoinedEvent):
-        await joined_event.chat.send_message(joined_event.room_name, "This Chat is now protected with StreamerShield")
+        await joined_event.chat.send_message(joined_event.room_name, "This Chat is now protected with StreamerShield! protecc")
         
     async def on_message(self, msg : ChatMessage):
         name = msg.user.name

@@ -134,6 +134,28 @@ class StreamerShieldTwitch:
                 "cli_func": self.shield_info_cli,
                 "twt_func": self.shield_info_twitch,
                 "permissions": 0
+                },
+        "shield":{
+            "help": "!shield : prints info about the shield",
+                "value": False,
+                "cli_func": self.shield_info_cli,
+                "twt_func": self.shield_info_twitch,
+                "permissions": 0
+                },
+        "pat":{
+            "help": "!pat [user_name] : pats user",
+                "value": True,
+                "cli_func": self.pat_cli,
+                "twt_func": self.pat_twitch,
+                "permissions": 0
+                }
+        ,
+        "scam":{
+            "help": "!scam [user_name] : evaluates username, if given",
+                "value": True,
+                "cli_func": self.scam_cli,
+                "twt_func": self.scam_twitch,
+                "permissions": 0
                 }
         }
         pass
@@ -293,7 +315,13 @@ class StreamerShieldTwitch:
     async def unblacklist_cli(self, name:str):
         self.l.passing(f"Unblacklisted {name}")
         self.list_update(name, self.black_list, remove= True)
-        
+     
+    async def scam_cli(self, name:str):
+        conf = await self.request_prediction(name) #will come in *1000 for use in json
+        self.l.info(f'User {name} returns conf {conf/1000}')
+  
+    async def pat_cli(self, name:str):
+        self.l.passingblue(f"You're a good boi!" )
     ### Twitch Command Handling
     async def shield_info_twitch(self, chat_command: ChatCommand):
          await chat_command.reply('StreamerShield is the AI ChatBot to rid twitch once and for all from scammers. More information here: https://linktr.ee/caesarlp')
@@ -363,6 +391,32 @@ class StreamerShieldTwitch:
             self.list_update(name, self.black_list, remove = True)
             await chat_command.reply(f'User {name} is no longer blacklisted')
     
+    async def scam_twitch(self, chat_command : ChatCommand):
+        try:
+            name = chat_command.parameter.replace("@", "")
+        except:
+            pass
+        if not name:
+            name = chat_command.user.name
+            
+        conf = await self.request_prediction(name) #will come in *1000 for use in json
+            
+        await chat_command.reply(f'{name} {conf/100}% a scammer')
+        
+    async def pat_twitch(self, chat_command : ChatCommand):
+        self_pat = False
+        try:
+            name = chat_command.parameter.replace("@", "")
+        except:
+            pass
+        if not name:
+            self_pat = True
+            name = chat_command.user.name
+          
+        if self_pat:
+            await chat_command.reply(f"@{name} got a pat! peepoPat")
+            return
+        await chat_command.reply(f'@{chat_command.user.name} gives @{name} a pat! peepoPat')
     ###Event Subs and Chat events
     
     async def on_ready(self,ready_event: EventData):

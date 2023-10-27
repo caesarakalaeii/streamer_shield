@@ -424,6 +424,7 @@ class StreamerShieldTwitch:
         if (bool(np.round(conf))):
             if self.is_armed:
                 #TODO: Check either for account age or follow count if possible
+                self.l.fail(f'Banned user {name}')
                 await twitch.ban_user(room_name_id, room_name_id, user.id, self.ban_reason)
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return

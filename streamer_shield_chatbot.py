@@ -535,17 +535,17 @@ class StreamerShieldTwitch:
         
     def list_update(self, name, list_name, remove=False):
         l : list = self.load_list(list_name)
-        if name[0] == "pat": 
-            for item in l:
-                if "pat" in item:
-                    item["pat"] = name[1]
-        else:
+        if type(name) == str:
             if name in l and not remove:
                 return
             if remove:
                 l.remove(name)
             else:
                 l.append(name)
+        elif name[0] == "pat": 
+            for item in l:
+                if "pat" in item:
+                    item["pat"] = name[1]
         self.write_list(l, list_name)
 
     def write_list(self, name_list, file_path):

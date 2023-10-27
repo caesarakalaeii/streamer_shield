@@ -470,7 +470,7 @@ class StreamerShieldTwitch:
         
         #if datacollectio is turned on, collect known users
         if (not self.check_list(name, self.known_users_location)) and self.collect_data:
-            self.list_update({"user":name, "conf":math.floor(conf)}, self.known_users_location)
+            self.list_update({name:math.floor(conf)}, self.known_users_location)
             
         conf = conf/1000 #turn into actual conf 0...1
         #check for account age    

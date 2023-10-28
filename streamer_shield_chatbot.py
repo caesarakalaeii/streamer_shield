@@ -332,10 +332,10 @@ class StreamerShieldTwitch:
         for command, value in self.commands.items():
             if(permission < value['permissions']):
                 continue
-            reply += f'{value["help"]}; '
-            if len(reply) > 200:
+            if len(reply)+ len(f'{value["help"]}; ') > 255:
                 await chat_command.reply(reply)
                 reply = ''
+            reply += f'{value["help"]}; '
         await chat_command.reply(reply)
         
     async def stop_twitch(self, chat_command:ChatCommand):

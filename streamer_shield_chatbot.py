@@ -404,7 +404,7 @@ class StreamerShieldTwitch:
             
         conf = await self.request_prediction(name) #will come in *1000 for use in json
             
-        await chat_command.reply(f'@{name} is to {conf/100}% a scammer')
+        await chat_command.reply(f'@{name} is to {conf/10}% a scammer')
         
     async def pat_twitch(self, chat_command : ChatCommand):
         self_pat = False

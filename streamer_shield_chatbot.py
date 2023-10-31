@@ -473,7 +473,7 @@ class StreamerShieldTwitch:
         
         #if datacollection is turned on, collect known users and their account age
         if (not self.check_list(name, self.known_users_location)) and self.collect_data:
-            self.list_update({name:(math.floor(conf), self.calculate_account_age(user))}, self.known_users_location)
+            self.list_update({name:(math.floor(conf), await self.calculate_account_age(user))}, self.known_users_location)
             
         conf = conf/1000 #turn into actual conf 0...1
         #check for account age    
@@ -503,7 +503,7 @@ class StreamerShieldTwitch:
     
     ### Utility functions    
     async def check_account_age(self, user: TwitchUser):
-        age = self.calculate_account_age(user)
+        age = await self.calculate_account_age(user)
         
         if age[0] > 0:
             return True

@@ -545,7 +545,7 @@ class StreamerShieldTwitch:
         except:
             check = l
             pass
-        return name in l
+        return name in check
         
     def list_update(self, name, list_name, remove=False):
         l : list = self.load_list(list_name)

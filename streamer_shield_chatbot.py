@@ -472,12 +472,12 @@ class StreamerShieldTwitch:
         conf = await self.request_prediction(name) #will come in *1000 for use in json
         
         #if datacollection is turned on, collect known users and their account age
+        user = await first(twitch.get_users(logins=name))
         if (not self.check_list(name, self.known_users_location)) and self.collect_data:
             self.list_update({name:(math.floor(conf), await self.calculate_account_age(user))}, self.known_users_location)
             
         conf = conf/1000 #turn into actual conf 0...1
         #check for account age    
-        user = await first(twitch.get_users(logins=name))
         if await self.check_account_age(user=user):
             self.l.passing(f'Found Account older than {self.age_threshold} Months, name : {name}, conf: {conf})')
             return

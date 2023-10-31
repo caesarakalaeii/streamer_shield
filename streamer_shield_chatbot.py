@@ -539,6 +539,12 @@ class StreamerShieldTwitch:
         
     def check_list(self, name, list_name):
         l = self.load_list(list_name)
+        check = []
+        try:
+            check=l.items()
+        except:
+            check = l
+            pass
         return name in l
         
     def list_update(self, name, list_name, remove=False):

@@ -180,7 +180,7 @@ class StreamerShieldTwitch:
         self.l.passingblue("Welcome home Chief!")
         
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch, revocation_handler=self.esub_revoked)
-        await self.eventsub.unsubscribe_all()
+        #await self.eventsub.unsubscribe_all() #don't unsub, to keep old subscriptions
         self.eventsub.start()
         self.l.passingblue("Started EventSub")
         
@@ -471,9 +471,9 @@ class StreamerShieldTwitch:
         #get prediction from REST 
         conf = await self.request_prediction(name) #will come in *1000 for use in json
         
-        #if datacollectio is turned on, collect known users
+        #if datacollection is turned on, collect known users and their account age
         if (not self.check_list(name, self.known_users_location)) and self.collect_data:
-            self.list_update({name:math.floor(conf)}, self.known_users_location)
+            self.list_update({name:(math.floor(conf), self.calculate_account_age(user))}, self.known_users_location)
             
         conf = conf/1000 #turn into actual conf 0...1
         #check for account age    
@@ -493,16 +493,21 @@ class StreamerShieldTwitch:
         self.l.passing(f'User {name} was classified as a human with conf {conf}')
             
     
-    ### Utility functions    
-    async def check_account_age(self, user: TwitchUser):
+    async def calculate_account_age(self, user: TwitchUser):
         current_time = datetime.now()
         creation_time = user.created_at
         age_year = current_time.year - creation_time.year
         age_months = current_time.month - creation_time.month
+        age_days = current_time.day - creation_time.day
+        return(age_year, age_months, age_days)
+    
+    ### Utility functions    
+    async def check_account_age(self, user: TwitchUser):
+        age = self.calculate_account_age(user)
         
-        if age_year > 0:
+        if age[0] > 0:
             return True
-        elif age_months > self.age_threshold:
+        elif age[1] > self.age_threshold:
             return True
         return False
             

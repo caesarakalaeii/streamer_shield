@@ -473,7 +473,7 @@ class StreamerShieldTwitch:
         
         #if datacollection is turned on, collect known users and their account age
         user = await first(twitch.get_users(logins=name))
-        if self.collect_data and (not self.check_list(name, self.known_users_location)):
+        if self.collect_data and (not self.check_known_users(name)):
             self.list_update({name:(math.floor(conf), await self.calculate_account_age(user))}, self.known_users_location)
             
         conf = conf/1000 #turn into actual conf 0...1
@@ -536,7 +536,16 @@ class StreamerShieldTwitch:
     
     async def check_black_list(self, name):
         return self.check_list(name, self.black_list)
+     
+     
+    def check_known_users(self, name):
+        l = self.load_list(self.known_users_location)
         
+        for d in l:
+            if name in d:
+                return True
+            
+        return False   
     
     def check_list(self, name, list_name):
         l = self.load_list(list_name)

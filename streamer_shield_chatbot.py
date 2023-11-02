@@ -438,7 +438,11 @@ class StreamerShieldTwitch:
         await ready_event.chat.join_room(channels)
         for channel in channels:
             user = await first(twitch.get_users(logins = [channel]))
-            await self.new_follow_esub(user.id)
+            try:
+                await self.new_follow_esub(user.id)
+            except:
+                self.l.error(f"Follow ESub for {user.login} not initialized")
+            self.l.info(f"Follow Esub for {user.login} initialized")  
     
     async def on_joined(self, joined_event: JoinedEvent):
         await joined_event.chat.send_message(joined_event.room_name, "This Chat is now protected with StreamerShield! protecc")

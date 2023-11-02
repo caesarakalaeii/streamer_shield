@@ -180,8 +180,11 @@ class StreamerShieldTwitch:
         self.l.passingblue("Welcome home Chief!")
         
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch, revocation_handler=self.esub_revoked)
-        #await self.eventsub.unsubscribe_all() #don't unsub, to keep old subscriptions
+        await self.eventsub.unsubscribe_all() #don't unsub, to keep old subscriptions
         self.eventsub.start()
+        
+        
+        
         self.l.passingblue("Started EventSub")
         
         self.user = await first(twitch.get_users(logins=self.user_name))
@@ -276,26 +279,27 @@ class StreamerShieldTwitch:
             user = await first(twitch.get_users(logins=name))
             self.list_update(name, self.channel_location)
             try:
-                self.l.info(f"Initializing Follow ESub")
-                
-                await self.eventsub.listen_channel_follow_v2(user.id, self.user.id, self.on_follow) #TODO: check if self.user.id or user.id and webhook endpoint
-            except EventSubSubscriptionConflict as e:
-                self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionConflict {e}')
-                pass
-            except EventSubSubscriptionTimeout as e:
-                self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionTimeout {e}')
-                pass
-            except EventSubSubscriptionError as e:
-                self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionError {e}')
-                pass
-            except TwitchBackendException as e:
-                self.l.error(f'Error whilst subscribing to eventsub: TwitchBackendException {e}')
-                pass
-            
+                self.new_follow_esub(user.id)
+            except:
+                return f"Unable to init EventSub, contact Admin"
             return f"Succsessfully joined {name}"
         self.l.error(f"Succsessfully joined {name}, but no mod status")
         return f"Succsessfully joined {name}, but no mod status"
             
+    async def new_follow_esub(self, id : str):
+        try:
+            self.l.info(f"Initializing Follow ESub")  
+            await self.eventsub.listen_channel_follow_v2(id, self.user.id, self.on_follow) 
+        except EventSubSubscriptionConflict as e:
+            self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionConflict {e}')
+        except EventSubSubscriptionTimeout as e:
+            self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionTimeout {e}')
+        except EventSubSubscriptionError as e:
+            self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionError {e}')
+        except TwitchBackendException as e:
+            self.l.error(f'Error whilst subscribing to eventsub: TwitchBackendException {e}')
+        
+        
     async def leave_cli(self, name:str):
         self.chat.leave_room(name)
         self.list_update(name, self.channel_location, remove=True)
@@ -432,6 +436,9 @@ class StreamerShieldTwitch:
         channels :list = self.load_list(self.channel_location)
         channels.append(self.chat.username)
         await ready_event.chat.join_room(channels)
+        for channel in channels:
+            user = await first(twitch.get_users(logins = [channel]))
+            await self.new_follow_esub(user.id)
     
     async def on_joined(self, joined_event: JoinedEvent):
         await joined_event.chat.send_message(joined_event.room_name, "This Chat is now protected with StreamerShield! protecc")
@@ -635,14 +642,16 @@ async def login_confirm():
         return 'Missing code', 400
     try:
         token, refresh = await auth.authenticate(user_token=code)
-        user_info = await first(twitch.get_users())
-        name = user_info.login
        
-        if not chat_bot.await_login:
-            ret_val =  await chat_bot.join_chat(name)
-        else:
+        if chat_bot.await_login:
             await twitch.set_user_authentication(token, TARGET_SCOPE, refresh)
             ret_val = "Welcome home chief!"
+            
+        user_info = await first(twitch.get_users())
+        name = user_info.login
+        
+        if not chat_bot.await_login:
+            ret_val =  await chat_bot.join_chat(name)
         
     except TwitchAPIException as e:
         return 'Failed to generate auth token', 400

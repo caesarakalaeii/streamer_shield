@@ -201,6 +201,7 @@ class StreamerShieldTwitch:
             self.chat.register_command(command, value['twt_func'])
         self.chat.start()
         
+        
         self.running = True
         
         await self.cli_run()
@@ -487,7 +488,7 @@ class StreamerShieldTwitch:
             if self.is_armed:
                 #TODO: Check either for account age or follow count if possible
                 self.l.fail(f'Banned user {name}')
-                await twitch.ban_user(room_name_id, room_name_id, user.id, self.ban_reason)
+                await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason) #self.user to ban using the Streamershield account
             self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
             return
         self.l.passing(f'User {name} was classified as a human with conf {conf}')
@@ -610,23 +611,10 @@ chat_bot: StreamerShieldTwitch
 TARGET_SCOPE : list
 app.secret_key = 'your_secret_key'
 
-class Base(DeclarativeBase):
-    pass
-class User(Base):
-    __tablename__ = 'users'
-    id = Column(Integer, primary_key=True)
-    twitch_id = Column(String(255), unique=True, nullable=False)
-    access_token = Column(String(255), nullable=False)
-    refresh_token = Column(String(255), nullable=False)
 
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'  # SQLite database
-engine = create_engine('sqlite:///users.db', connect_args={"check_same_thread": False})
 
-# Create a new async session factory
-session = sessionmaker(bind=engine, expire_on_commit=False)
-# Define your SQLAlchemy model
-Base.metadata.create_all(engine)
+
 
 
 @app.route('/login')
@@ -647,32 +635,13 @@ async def login_confirm():
         return 'Missing code', 400
     try:
         token, refresh = await auth.authenticate(user_token=code)
-        await twitch.set_user_authentication(token, TARGET_SCOPE, refresh)
         user_info = await first(twitch.get_users())
         name = user_info.login
-        user = User(
-            twitch_id=user_info.id,
-            access_token=token,
-            refresh_token=refresh
-        )
-        with Session(engine) as session:
-            try:
-                session.add(user)
-                session.commit()
-            except:
-                print("user found")
-                session.rollback()
-                user_old_stmt = (
-                    select(User)
-                    .where(User.id.in_([user_info.id]))
-                )
-                for user_old in session.scalars(user_old_stmt):
-                    user_old.access_token = token
-                    user_old.refresh_token = refresh
-                session.commit()
+       
         if not chat_bot.await_login:
             ret_val =  await chat_bot.join_chat(name)
         else:
+            await twitch.set_user_authentication(token, TARGET_SCOPE, refresh)
             ret_val = "Welcome home chief!"
         
     except TwitchAPIException as e:

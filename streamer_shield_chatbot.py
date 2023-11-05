@@ -559,20 +559,20 @@ class StreamerShieldTwitch:
             
         return False   
     
-    def check_list(self, name, list_name):
+    def check_list(self, name : str, list_name):
         l = self.load_list(list_name)
-        r = name in l
+        r = (name in l) or (name.lower() in l)
         return r
         
     def list_update(self, name, list_name, remove=False):
         l : list = self.load_list(list_name)
         if type(name) == str:
-            if name in l and not remove:
+            if name.lower() in l and not remove:
                 return
             if remove:
-                l.remove(name)
+                l.remove(name.lower())
             else:
-                l.append(name)
+                l.append(name.lower())
         try:
             if name["pat"]: 
                 for item in l:

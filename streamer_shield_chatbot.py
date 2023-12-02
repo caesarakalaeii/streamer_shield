@@ -6,18 +6,12 @@ import asyncio
 import requests
 import threading
 import numpy as np
-from datetime import datetime 
+from datetime import datetime
 from end_point_config import *
-from sqlalchemy.orm import Session
 from twitchAPI.helper import first
-from sqlalchemy import create_engine
-from sqlalchemy import String, select
 from twitch_config import TwitchConfig
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm import DeclarativeBase
-from quart import Quart, make_response, redirect, request, Response
+from quart import Quart, redirect, request
 from twitchAPI.oauth import UserAuthenticator
-from sqlalchemy import Column, String, Integer
 from twitchAPI.twitch import Twitch, TwitchUser
 from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.eventsub.webhook import EventSubWebhook
@@ -25,7 +19,7 @@ from twitchAPI.object.eventsub import ChannelFollowEvent
 from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException, EventSubSubscriptionConflict, EventSubSubscriptionError, EventSubSubscriptionTimeout, TwitchBackendException
 from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
 
-init_login :bool
+init_login : bool
 twitch: Twitch
 auth: UserAuthenticator
 
@@ -180,7 +174,7 @@ class StreamerShieldTwitch:
         self.l.passingblue("Welcome home Chief!")
         
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch, revocation_handler=self.esub_revoked)
-        await self.eventsub.unsubscribe_all() #don't unsub, to keep old subscriptions
+        await self.eventsub.unsubscribe_all() # unsub, other wise stuff breaky
         self.eventsub.start()
         
         
@@ -279,7 +273,7 @@ class StreamerShieldTwitch:
             user = await first(twitch.get_users(logins=name))
             self.list_update(name, self.channel_location)
             try:
-                self.new_follow_esub(user.id)
+                await self.new_follow_esub(user.id)
             except:
                 return f"Unable to init EventSub, contact Admin"
             return f"Succsessfully joined {name}"
@@ -550,11 +544,11 @@ class StreamerShieldTwitch:
         return self.check_list(name, self.black_list)
      
      
-    def check_known_users(self, name):
+    def check_known_users(self, name:str):
         l = self.load_list(self.known_users_location)
         
         for d in l:
-            if name in d:
+            if name.lower() in d:
                 return True
             
         return False   
@@ -579,7 +573,7 @@ class StreamerShieldTwitch:
                     if "pat" in item:
                         item["pat"] = name["pat"]
         except:
-            l.append(name)
+            l.append(name.lower())
             pass
         self.write_list(l, list_name)
 
@@ -684,10 +678,10 @@ if __name__ == "__main__":
     config.max_lenght = 31
     config.user_name = TWITCH_USER
     TARGET_SCOPE = [AuthScope.CHAT_READ,
-                          AuthScope.CHAT_EDIT,
-                          AuthScope.MODERATOR_READ_CHATTERS,
-                          AuthScope.MODERATOR_MANAGE_BANNED_USERS,
-                          AuthScope.MODERATOR_READ_FOLLOWERS]
+                    AuthScope.CHAT_EDIT,
+                    AuthScope.MODERATOR_READ_CHATTERS,
+                    AuthScope.MODERATOR_MANAGE_BANNED_USERS,
+                    AuthScope.MODERATOR_READ_FOLLOWERS]
     config.user_scopes = TARGET_SCOPE
     config.white_list_location = "whitelist.json"
     config.black_list_location = "blacklist.json"
@@ -698,6 +692,7 @@ if __name__ == "__main__":
     config.eventsub_url = EVENTSUB_URL
     config.shield_url = SHIELD_URL
     config.auth_url = AUTH_URL
+    config.is_armed = True
     
     chat_bot = StreamerShieldTwitch(config)
     

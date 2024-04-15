@@ -150,7 +150,15 @@ class StreamerShieldTwitch:
                 "cli_func": self.scam_cli,
                 "twt_func": self.scam_twitch,
                 "permissions": 0
-                }
+                },
+        "test":{
+            
+            "help": "!scam [user_name] : evaluates username, if given",
+                "value": True,
+                "cli_func": self.test_cli,
+                "twt_func": self.test_twitch,
+                "permissions": 10
+        }
         }
         pass
           
@@ -321,6 +329,11 @@ class StreamerShieldTwitch:
   
     async def pat_cli(self, name:str):
         self.l.passingblue(f"You're a good boi!" )
+    
+    async def test_cli(self, name:str):
+        self.l.info(f'Restricting {name}')
+        await self.chat.send_message('caesarlp', f'/restrict {name}')
+    
     ### Twitch Command Handling
     async def shield_info_twitch(self, chat_command: ChatCommand):
          await chat_command.reply('StreamerShield is the AI ChatBot to rid twitch once and for all from scammers. More information here: https://linktr.ee/caesarlp')
@@ -424,6 +437,12 @@ class StreamerShieldTwitch:
             await chat_command.reply(f"You just gave yourself a pat on the back! well deserved LoveYourself {pats} pats have been given")
             return
         await chat_command.reply(f'@{chat_command.user.name} gives @{name} a pat! peepoPat {pats} pats have been given')
+    
+    async def test_twitch(self,  chat_command : ChatCommand):
+        name = chat_command.parameter.replace("@", "")
+        await chat_command.reply(f'Trying to restrict user {name}')
+        self.l.info(f'Restricting {name}')
+        await self.chat.send_message(chat_command.room.room_id, f'/restrict {name}')
     ###Event Subs and Chat events
     
     async def on_ready(self,ready_event: EventData):

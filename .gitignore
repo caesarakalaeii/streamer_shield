@@ -3,7 +3,7 @@
 *.log
 config.py
 *token*
-
+reverse_proxy/*
 instance/*
 *.db
 end_point_config.py

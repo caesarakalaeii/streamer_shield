@@ -472,7 +472,8 @@ class StreamerShieldTwitch:
             self.l.warning(f"{name} is found in blacklist")
             if self.is_armed:
                 user = await first(twitch.get_users(logins=name))
-                await twitch.ban_user(room_name_id, room_name_id, user.id, self.ban_reason)
+                await self.chat.send_message(room_name_id, f'/restrict {name}')
+                #await twitch.ban_user(room_name_id, room_name_id, user.id, self.ban_reason)
             return
         #get prediction from REST 
         conf = await self.request_prediction(name) #will come in *1000 for use in json

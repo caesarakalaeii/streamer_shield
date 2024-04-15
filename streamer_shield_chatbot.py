@@ -442,7 +442,7 @@ class StreamerShieldTwitch:
         name = chat_command.parameter.replace("@", "")
         await chat_command.reply(f'Trying to restrict user {name}')
         self.l.info(f'Restricting {name}')
-        await self.chat.send_message(chat_command.room.room_id, f'/restrict {name}')
+        await self.chat.send_raw_irc_message(chat_command.room.room_id, f'/restrict {name}')
     ###Event Subs and Chat events
     
     async def on_ready(self,ready_event: EventData):

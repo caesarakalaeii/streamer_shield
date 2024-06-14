@@ -7,3 +7,7 @@ reverse_proxy/*
 instance/*
 *.db
 end_point_config.py
+*known_users*
+whitelist.json
+blacklist.json
+*.h5

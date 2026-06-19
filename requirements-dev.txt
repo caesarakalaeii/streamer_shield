@@ -1,0 +1,7 @@
+# Local dev/test deps — auto-installed by direnv via .envrc.
+# TensorFlow is excluded on purpose (run the model/API in Docker); see requirements-api.txt.
+-r requirements-bot.txt
+flask>=3.0,<4
+numpy>=1.26
+pytest>=8
+pytest-asyncio>=0.23

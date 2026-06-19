@@ -1,0 +1,5 @@
+# StreamerShield model/prediction API. Used by Dockerfile.api (python:3.12-slim).
+flask>=3.0,<4
+gunicorn>=22
+tensorflow-cpu>=2.16,<2.20
+numpy>=1.26,<2.2

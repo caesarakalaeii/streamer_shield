@@ -1,0 +1,8 @@
+# StreamerShield chat bot — NO TensorFlow. Used by Dockerfile.bot.
+twitchAPI>=4.5,<5
+quart>=0.20
+hypercorn>=0.16
+asyncpg>=0.30,<0.32
+httpx>=0.27
+python-dotenv>=1.0
+prometheus-client>=0.21

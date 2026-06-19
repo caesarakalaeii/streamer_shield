@@ -1,21 +1,43 @@
-from twitchAPI.type import AuthScope
+"""Runtime configuration for the StreamerShield bot.
+
+This is a plain data holder. Values are populated from environment variables by
+:func:`config.build_twitch_config`. It deliberately does not import twitchAPI so
+it stays cheap to import and easy to construct in tests.
+"""
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
+
 from logger import Logger
 
+
+@dataclass
 class TwitchConfig:
-    app_id : str
-    app_secret : str      
-    user_scopes : [AuthScope]
-    white_list_location : str
-    black_list_location : str
-    channel_location : str
-    known_users_location : str
-    user_name : str
-    shield_url : str
-    is_armed : bool = False
-    auth_url : str
-    eventsub_url : str
-    collect_data : bool
-    admin : str
-    age_threshold : int = 6
-    ban_reason : str = '''You've been banned by StreamerShield, if you think the was an Error, please make an unban request'''
-    logger : Logger = Logger(console_log=True)
+    # Twitch app credentials + bot identity
+    app_id: str
+    app_secret: str
+    user_name: str
+    admin: str
+
+    # Public URLs
+    eventsub_url: str
+    shield_url: str
+    auth_url: str
+
+    # OAuth scopes (list of twitchAPI AuthScope / Enum members). Filled in by the
+    # bot which owns the twitchAPI import; left empty here to avoid the dependency.
+    user_scopes: List[Any] = field(default_factory=list)
+
+    # Behaviour
+    is_armed: bool = False
+    collect_data: bool = True
+    age_threshold: int = 6          # months; accounts older than this skip the model
+    max_length: int = 29            # model username sequence length (mirrors the API)
+
+    # Confidence -> action thresholds (tiered monitor/restrict)
+    conf_restrict: float = 0.9      # >= this -> "restricted"
+    conf_monitor: float = 0.5       # >= this (and < restrict) -> "active_monitoring"
+
+    # Only run the interactive stdin CLI when explicitly enabled (never in k8s)
+    enable_cli: bool = False
+
+    logger: Optional[Logger] = None

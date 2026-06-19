@@ -1,0 +1,18 @@
+# StreamerShield chat bot (no TensorFlow). Serves OAuth + /health on :5000 and
+# the EventSub webhook on :8080; talks to the prediction API over HTTP.
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-bot.txt .
+RUN pip install --no-cache-dir -r requirements-bot.txt
+
+COPY streamer_shield_chatbot.py twitch_config.py logger.py config.py db.py helix_extra.py features.py dashboard.py ./
+
+EXPOSE 5000 8080
+CMD ["python", "streamer_shield_chatbot.py"]

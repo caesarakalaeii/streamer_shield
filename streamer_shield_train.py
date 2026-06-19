@@ -1,121 +1,92 @@
-import re
+"""Train the multi-feature StreamerShield model.
+
+Default run trains on the self-contained synthetic bootstrap dataset and writes
+``streamershield.keras`` (the artifact baked into the API image). Once real data
+has been collected, prefer ``train_from_db.py`` to retrain on labelled observations.
+
+Runs in the API Docker image (TensorFlow). Example:
+    python streamer_shield_train.py --epochs 15 --out streamershield.keras
+"""
+from __future__ import annotations
+
+import argparse
+
 import numpy as np
-import pandas as pd
-import tensorflow as tf
-from vocab import load_vocab, save_vocab
-import classification_helper
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-from sklearn.model_selection import train_test_split
+
+import features
+import synthetic
+from streamer_shield import DEFAULT_MODEL_PATH, build_model, inputs_to_tensors, make_preprocessors
 
 
-def percentage_scammer(data, percentage):
-    
-    df = pd.DataFrame(data, columns=["names", "scammer"])
-    scammers = df[df["scammer"] == "1"] 
-    users = df[df["scammer"] == "0"] 
-    usersample = users.sample(int(len(scammers)*(1-percentage)))
-    train_set = np.concatenate((scammers.to_numpy(),usersample.to_numpy()), axis=0)
-    train_set
-    return train_set #works as intended
-    
-def clean_data(string):
-    string = re.sub('[^a-zA-Z0-9_]', ' ',string)
-    string = string.lower()
-    return string
+def rows_to_arrays(rows: list[dict]):
+    mis = [features.build_model_inputs(**{k: v for k, v in r.items() if k != "label"}) for r in rows]
+    numeric = np.array([mi["numeric"] for mi in mis], dtype="float32")
+    labels = np.array([r["label"] for r in rows], dtype="float32")
+    return mis, numeric, labels
 
 
-# Preprocess the string data to adapt for the CNN model
-def preprocess_string_data(strings, sequence_len , vocab_path):
-    # Creating a vocab set
-    vocabulary = set(''.join(strings))
-    save_vocab(vocabulary, filename=vocab_path)
-    vocab_len = len(vocabulary)
-    vocabulary = load_vocab(filename=vocab_path)#vocab changes after loading for some reason
+def train_from_rows(rows: list[dict], model_path: str = DEFAULT_MODEL_PATH, epochs: int = 15,
+                    val_frac: float = 0.2, seed: int = 42, batch_size: int = 64):
+    import tensorflow as tf
 
-    # Creating dictionary that maps each character to an integer
-    char_index = dict((c, i) for i, c in enumerate(vocabulary))
+    mis, numeric, labels = rows_to_arrays(rows)
+    n = len(rows)
+    rng = np.random.default_rng(seed)
+    idx = rng.permutation(n)
+    cut = int(n * (1 - val_frac))
+    tr, va = idx[:cut], idx[cut:]
 
-    # Convert the string dataset to integer representation
-    int_strings = []
-    for s in strings:
-        int_s = [char_index[c] for c in s]
-        # Padding the string with 0's
-        int_s = int_s[:sequence_len] + [0]*(sequence_len-len(int_s))
-        int_strings.append(int_s)
+    uvec, bvec, nnorm = make_preprocessors(
+        [mis[i]["username"] for i in tr], [mis[i]["bio"] for i in tr], numeric[tr]
+    )
+    model = build_model(uvec, bvec, nnorm)
+    model.summary()
 
-    return np.array(int_strings), vocab_len
-
-
-# Assuming your raw data looks like this
-# It should be replaced with your actual dataset
-def train(data_path, model_path,vocabulary_path ,layers = [32,32,32,1], kernel = 3, oneHot = False,balancing = 0.5,test_size = 0.3,  sequence_len = 25, patience = 5, epochs = 20):
-    tf.config.list_physical_devices('GPU')
-    train_data = np.array(classification_helper.load_csv(data_path))
-    #train_data = percentage_scammer(train_data, balancing)
-    np.random.shuffle(train_data)
-    for i in range(len(train_data)):
-        train_data[i] = [clean_data(train_data[i,0]),int(train_data[i,1])]
-    
-
-    
-    int_strings, vocab_len = preprocess_string_data(train_data[:,0], sequence_len, vocabulary_path)
-    if oneHot:
-        encoder = OneHotEncoder(sparse=False)
-        int_labels = encoder.fit_transform(np.array(train_data[:,1]).reshape(-1, 1))
-    else:
-        encoder = LabelEncoder()
-        int_labels = encoder.fit_transform(train_data[:,1])
-    x_train, x_test, y_train, y_test = train_test_split(int_strings, int_labels, test_size=test_size, random_state=42)
-
-    # CNN model 
-    if oneHot:
-        model = tf.keras.models.Sequential([
-        tf.keras.layers.Embedding(vocab_len+1, 64, input_length=sequence_len),
-        tf.keras.layers.Conv1D(128, 5, activation='relu'),
-        tf.keras.layers.GlobalAveragePooling1D(),
-        tf.keras.layers.Dense(64, activation='relu'),
-        tf.keras.layers.Dense(2, activation='softmax')
-        ])
-        model.compile(loss='categorical_crossentropy',optimizer='adam',metrics=['accuracy'])
-    else:
-        model = tf.keras.models.Sequential([
-            tf.keras.layers.Embedding(vocab_len+1, layers[0], input_length=sequence_len),
-            tf.keras.layers.Conv1D(layers[1], kernel, activation='relu'),
-            tf.keras.layers.GlobalAveragePooling1D(),
-            tf.keras.layers.Dense(layers[2], activation='relu'),
-            tf.keras.layers.Dense(1, activation='sigmoid')
-        ])
-
-        model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
-
-    earlystop  = tf.keras.callbacks.EarlyStopping(monitor='val_loss', 
-                                                  patience=patience, 
-                                                  verbose=True,  
-                                                  restore_best_weights=True)
-    callbacksList = [earlystop]
-    
-    history = model.fit(x_train, y_train,
-                        epochs=epochs,
-                        validation_data=(x_test, y_test),
-                        callbacks=callbacksList,
-                        verbose=True,
-                        use_multiprocessing=True)
-
-
-    # Save the trained model to a file
+    early = tf.keras.callbacks.EarlyStopping(
+        monitor="val_loss", patience=3, restore_best_weights=True, verbose=1
+    )
+    model.fit(
+        inputs_to_tensors([mis[i] for i in tr]),
+        labels[tr],
+        validation_data=(inputs_to_tensors([mis[i] for i in va]), labels[va]),
+        epochs=epochs,
+        batch_size=batch_size,
+        callbacks=[early],
+        verbose=2,
+    )
     model.save(model_path)
-    
-    lossMonitor = np.array(history.history['loss'])
-    valLossMonitor = np.array(history.history['val_loss'])
-    counts = np.arange(lossMonitor.shape[0])
-    fig = plt.figure()
-    ax = fig.add_subplot(1,1,1)
-    ax.plot(counts,lossMonitor,'k', label='Trainingsdata')
-    ax.plot(counts,valLossMonitor,'r:', label='Testdata')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Error')
-    ax.legend()
-    fig.savefig("shield_train.png")
-   
-   
+    print(f"saved model to {model_path}")
+    _smoke(model)
+    return model
+
+
+def _smoke(model):
+    """Eyeball a couple of obvious cases."""
+    scam = features.build_model_inputs(
+        login="jessica_howard472", description="FREE gift cards discord.gg/x",
+        account_age_days=3, broadcaster_type="", profile_image_url=synthetic._DEFAULT_AVATAR,
+    )
+    human = features.build_model_inputs(
+        login="caesarlp", description="variety streamer, souls games", account_age_days=2200,
+        broadcaster_type="partner", follower_count=12000,
+        profile_image_url="https://static-cdn.jtvnw.net/jtv_user_pictures/real.png",
+    )
+    x = inputs_to_tensors([scam, human])
+    preds = model(x, training=False).numpy().ravel()
+    print(f"smoke: scammer-like={preds[0]:.3f}  human-like={preds[1]:.3f}")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default=DEFAULT_MODEL_PATH)
+    ap.add_argument("--epochs", type=int, default=15)
+    ap.add_argument("--n-per-class", type=int, default=4000)
+    ap.add_argument("--seed", type=int, default=42)
+    args = ap.parse_args()
+    rows = synthetic.generate(n_per_class=args.n_per_class, seed=args.seed)
+    print(f"training on {len(rows)} synthetic rows")
+    train_from_rows(rows, model_path=args.out, epochs=args.epochs, seed=args.seed)
+
+
+if __name__ == "__main__":
+    main()

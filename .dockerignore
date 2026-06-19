@@ -1,0 +1,20 @@
+.git
+.github
+.venv
+.direnv
+.deps-stamp
+__pycache__/
+*.pyc
+tests/
+reverse_proxy/
+.claude/
+*.log
+*.csv
+*.png
+*.pkl
+# Experimental Keras-2 models — the served model is streamershield.keras (kept).
+*.h5
+# Local state / config
+*.json
+.env
+.env.example

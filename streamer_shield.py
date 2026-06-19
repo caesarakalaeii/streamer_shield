@@ -1,127 +1,119 @@
+"""Multi-feature scammer classifier.
 
-import math
-from vocab import load_vocab
+A Keras functional model with three inputs whose preprocessing is baked into the
+graph (so serving just passes near-raw values):
+
+  * ``username`` : string -> char-level TextVectorization -> Embedding -> Conv1D
+  * ``bio``      : string -> word-level TextVectorization -> Embedding -> Conv1D
+  * ``numeric``  : float vector (see features.NUMERIC_FEATURE_NAMES) -> Normalization
+
+The three branches are concatenated into a sigmoid scam probability.
+
+Building/training requires TensorFlow (runs in the API Docker image, python:3.12).
+``features.py`` stays TF-free so the bot can build the inputs without TensorFlow.
+"""
+from __future__ import annotations
+
+from typing import List, Sequence
+
 import tensorflow as tf
-from logger import Logger
-import numpy as np
-import re
+from tensorflow import keras
+from tensorflow.keras import layers
 
-def clean_data(string):
-    string = re.sub('[^a-zA-Z0-9_]', ' ',string)
-    string = string.lower()
-    return string
+import features as feat
+
+DEFAULT_MODEL_PATH = "streamershield.keras"
+
+USERNAME_MAX_LEN = 30
+BIO_MAX_TOKENS = 5000
+BIO_SEQ_LEN = 40
+
+
+def make_preprocessors(
+    usernames: Sequence[str],
+    bios: Sequence[str],
+    numeric_matrix,
+    username_max_len: int = USERNAME_MAX_LEN,
+):
+    """Create and adapt the three preprocessing layers on the training data."""
+    username_vec = layers.TextVectorization(
+        standardize=None,  # usernames are already cleaned by features.clean_username
+        split="character",
+        output_mode="int",
+        output_sequence_length=username_max_len,
+        name="username_vectorizer",
+    )
+    username_vec.adapt(list(usernames))
+
+    bio_vec = layers.TextVectorization(
+        max_tokens=BIO_MAX_TOKENS,
+        standardize="lower_and_strip_punctuation",
+        split="whitespace",
+        output_mode="int",
+        output_sequence_length=BIO_SEQ_LEN,
+        name="bio_vectorizer",
+    )
+    bio_vec.adapt(list(bios))
+
+    numeric_norm = layers.Normalization(axis=-1, name="numeric_norm")
+    numeric_norm.adapt(numeric_matrix)
+    return username_vec, bio_vec, numeric_norm
+
+
+def build_model(username_vec, bio_vec, numeric_norm, num_numeric: int = feat.NUM_NUMERIC_FEATURES):
+    username_in = keras.Input(shape=(1,), dtype=tf.string, name="username")
+    bio_in = keras.Input(shape=(1,), dtype=tf.string, name="bio")
+    numeric_in = keras.Input(shape=(num_numeric,), dtype=tf.float32, name="numeric")
+
+    # Username char branch
+    u = username_vec(username_in)
+    u = layers.Embedding(username_vec.vocabulary_size() + 1, 32, name="username_embedding")(u)
+    u = layers.Conv1D(32, 3, activation="relu")(u)
+    u = layers.GlobalAveragePooling1D()(u)
+
+    # Bio word branch
+    b = bio_vec(bio_in)
+    b = layers.Embedding(BIO_MAX_TOKENS + 1, 32, name="bio_embedding")(b)
+    b = layers.Conv1D(32, 3, activation="relu")(b)
+    b = layers.GlobalAveragePooling1D()(b)
+
+    # Numeric branch
+    n = numeric_norm(numeric_in)
+    n = layers.Dense(16, activation="relu")(n)
+
+    x = layers.Concatenate()([u, b, n])
+    x = layers.Dense(32, activation="relu")(x)
+    x = layers.Dropout(0.3)(x)
+    out = layers.Dense(1, activation="sigmoid", name="scam")(x)
+
+    model = keras.Model(inputs=[username_in, bio_in, numeric_in], outputs=out)
+    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+    return model
+
+
+def inputs_to_tensors(model_inputs_list: List[dict]) -> dict:
+    """Turn a list of ``features.build_model_inputs`` dicts into a batched tensor dict.
+
+    String inputs are shaped (N, 1) to match the model's ``Input(shape=(1,))`` and
+    fed as tf.string tensors (numpy unicode arrays are rejected by Keras)."""
+    return {
+        "username": tf.constant([[mi["username"]] for mi in model_inputs_list], dtype=tf.string),
+        "bio": tf.constant([[mi["bio"]] for mi in model_inputs_list], dtype=tf.string),
+        "numeric": tf.constant([mi["numeric"] for mi in model_inputs_list], dtype=tf.float32),
+    }
+
 
 class StreamerShield:
-    
-    def __init__(self, model_path, vocab_path, max_length) -> None:
-        print("loading model")
-        self.max_length = max_length
-        self.vocab_path = vocab_path
-        self.loaded_model = tf.keras.models.load_model(model_path)
-        
-        
-    def preprocess(self, string, sequence_len):
-        # Creating a vocab set
-        vocabulary = load_vocab(self.vocab_path)
-        vocab_len = len(vocabulary)
+    """Serving wrapper: load a trained .keras model and score feature dicts."""
 
-        # Creating dictionary that maps each character to an integer
-        char_index = dict((c, i) for i, c in enumerate(vocabulary))
+    def __init__(self, model_path: str = DEFAULT_MODEL_PATH) -> None:
+        print(f"loading model from {model_path}")
+        self.loaded_model = keras.models.load_model(model_path)
 
-        # Convert the string to integer representation
-        int_s = [char_index[c] for c in string]
-        # Padding the string with 0's
-        int_s = int_s[:sequence_len] + [0]*(sequence_len-len(int_s))
-        
-        return np.array(int_s).reshape(1, -1), vocab_len
+    def predict(self, model_inputs: dict) -> float:
+        """Score a single ``features.build_model_inputs`` dict; returns P(scammer)."""
+        x = inputs_to_tensors([model_inputs])
+        return float(self.loaded_model(x, training=False).numpy()[0][0])
 
-    def predict(self,string):
-        print("preprocessing name")
-        string = clean_data(string)
-        processed_string, _ = self.preprocess(string, self.max_length)
-        print("predicting...")
-        is_scammer = self.loaded_model(processed_string)
-        
-        return is_scammer
-    
-    
-    def test(self, onehot):
-        test_names_users = ["caesarlp", "VTNiles", "RustoCa", "norari__", "roooooooooberrrrrrrrrrrt" ]
-        test_names_scammers = ["Sophie_Howard25", "Jessica_Bell", "Amber_Brooks", "Alice_gfx", "elizabethshriver" ]
-        correctly_identified_users_bool = []
-        correctly_identified_users_conf = []
-        correctly_identified_scammers_bool = []
-        correctly_identified_scammers_conf = []
-        
-        if onehot:
-            for user in test_names_users:
-                conf = self.predict(user)[0]
-                correctly_identified_users_bool.append(conf[0] < conf[1])
-                correctly_identified_users_conf.append(conf)
-            for user in test_names_scammers:
-                conf = self.predict(user)[0]
-                correctly_identified_scammers_bool.append(conf[0] > conf[1])
-                correctly_identified_scammers_conf.append(conf)
-        else:
-            for user in test_names_users:
-                conf = self.predict(user)[0][0]
-                correctly_identified_users_bool.append(not bool(np.round(conf)))
-                correctly_identified_users_conf.append(conf)
-            for user in test_names_scammers:
-                conf = self.predict(user)[0][0]
-                correctly_identified_scammers_bool.append(bool(np.round(conf)))
-                correctly_identified_scammers_conf.append(conf)
-        return correctly_identified_users_bool,correctly_identified_users_conf,correctly_identified_scammers_bool, correctly_identified_scammers_conf
-        
-    
-if __name__ == "__main__":
-    ss = StreamerShield("attempt_4.h5","shield_vocab.json", 29)
-    l = Logger(console_log=True)
-    onehot = False
-    
-    while(True):
-        name = input("Specify username\n").replace(" ", "")
-        if name == "stop":
-            print("Stopping...")
-            break
-        if name == "test":
-            correctly_identified_users_bool,correctly_identified_users_conf,correctly_identified_scammers_bool, correctly_identified_scammers_conf = ss.test(False)
-            user_perc = 0
-            for user in correctly_identified_users_bool:
-                if user == True:
-                    user_perc +=1
-            for scammer in correctly_identified_scammers_bool:
-                if scammer == True:
-                    user_perc +=1
-                    
-            total_perc = user_perc/(len(correctly_identified_scammers_bool)+ len(correctly_identified_users_bool))
-            
-            l.passing(f'''
-                    Test results: {total_perc}
-                    Users: {correctly_identified_users_bool}
-                    conf: {correctly_identified_users_conf}
-                    Scammer: {correctly_identified_scammers_bool}
-                    conf: {correctly_identified_scammers_conf}
-                    '''.replace(' ', ''))
-        else:
-            is_scammer = ss.predict(name)
-            if(onehot):
-                if is_scammer[0][0]>ss.user_threshold:
-                    print(f"User {name} is not a scammer! \nuser_confidence = {is_scammer[0][0]}\nscam_confidence = {is_scammer[0][1]}")
-                elif is_scammer[0][1]>ss.scam_threshold:
-                    print(f"User {name} is a scammer! \nuser_confidence = {is_scammer[0][0]}\nscam_confidence = {is_scammer[0][1]}")
-                elif is_scammer[0][1]>is_scammer[0][0]:
-                    print(f"User {name} is likely a scammer! \nuser_confidence = {is_scammer[0][0]}\nscam_confidence = {is_scammer[0][1]}")
-                elif is_scammer[0][1]<is_scammer[0][0]:
-                    print(f"User {name} is likely a user! \nuser_confidence = {is_scammer[0][0]}\nscam_confidence = {is_scammer[0][1]}")
-                else:
-                    print(f"User {name} is a mystery! \nuser_confidence = {is_scammer[0][0]}\nscam_confidence = {is_scammer[0][1]}")
-            else:
-                if bool(not np.round(is_scammer[0][0])):
-                    print(f"User {name} is not a scammer! \nconfidence = {is_scammer[0][0]}")
-                elif bool(np.round(is_scammer[0][0])):
-                    print(f"User {name} is a scammer! \nconfidence = {is_scammer[0][0]}")
-                else:
-                    print(f"User {name} is a mystery! \nconfidence = {is_scammer[0][0]}")
-            
-      
+    def predict_from_fields(self, **raw_fields) -> float:
+        return self.predict(feat.build_model_inputs(**raw_fields))

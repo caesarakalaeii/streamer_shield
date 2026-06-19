@@ -1,13 +1,29 @@
-*.csv
-*pycache*
+# Byte-compiled / cache
+__pycache__/
+*.pyc
 *.log
-config.py
+
+# Local dev environment (direnv-managed virtualenv)
+.venv/
+.direnv/
+.deps-stamp
+
+# Local config / secrets — provided via env vars in prod, .env locally
+.env
+
+# Legacy token dumps
 *token*
-reverse_proxy/*
-instance/*
-*.db
-end_point_config.py
+
+# Legacy file-based state — now persisted in Postgres (transient locally)
 *known_users*
 whitelist.json
 blacklist.json
+joinable_channels.json
+
+# Training data and experimental model artifacts.
+# The *served* model is committed as a .keras file (not matched here).
+*.csv
 *.h5
+*.db
+instance/*
+reverse_proxy/*

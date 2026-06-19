@@ -1,48 +1,66 @@
 import os
-import json
-import math
-import time
+import sys
+import signal
 import asyncio
-import requests
-import threading
-import numpy as np
-from datetime import datetime
-from end_point_config import *
+import contextlib
+from datetime import datetime, timezone
+from typing import Optional
+
+import httpx
+from quart import Quart, redirect, request, session
 from twitchAPI.helper import first
-from twitch_config import TwitchConfig
-from quart import Quart, redirect, request
-from twitchAPI.oauth import UserAuthenticator
+from twitchAPI.oauth import UserAuthenticator, validate_token
 from twitchAPI.twitch import Twitch, TwitchUser
-from config import APP_SECRET, APP_ID, TWITCH_USER
 from twitchAPI.eventsub.webhook import EventSubWebhook
 from twitchAPI.object.eventsub import ChannelFollowEvent
-from twitchAPI.type import AuthScope, ChatEvent, TwitchAPIException, EventSubSubscriptionConflict, EventSubSubscriptionError, EventSubSubscriptionTimeout, TwitchBackendException
-from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand, ChatUser
+from twitchAPI.type import (
+    AuthScope,
+    ChatEvent,
+    TwitchAPIException,
+    EventSubSubscriptionConflict,
+    EventSubSubscriptionError,
+    EventSubSubscriptionTimeout,
+    TwitchBackendException,
+)
+from twitchAPI.chat import Chat, EventData, ChatMessage, JoinEvent, JoinedEvent, ChatCommand
 
-init_login : bool
+from hypercorn.asyncio import serve
+from hypercorn.config import Config as HyperConfig
+
+import dashboard
+import features
+from config import build_twitch_config, DbConfig
+from db import Database
+from helix_extra import (
+    LowTrustStatus,
+    SUSPICIOUS_MANAGE_SCOPE,
+    decide_status,
+    remove_suspicious_status,
+    set_suspicious_status,
+)
+from logger import Logger
+from twitch_config import TwitchConfig
+
+init_login: bool
 twitch: Twitch
 auth: UserAuthenticator
 
 
-
 class StreamerShieldTwitch:
-    global twitch, auth
-    chat : Chat
-    commands : dict
-    is_armed : bool
-    
-    def __init__(self, config : TwitchConfig) -> None:
+    global twitch
+    chat: Chat
+    commands: dict
+    is_armed: bool
+
+    def __init__(self, config: TwitchConfig, db: Database) -> None:
         self.__app_id = config.app_id
         self.__app_secret = config.app_secret
         self.user_scopes = config.user_scopes
         self.user_name = config.user_name
-        self.is_armed  = config.is_armed
-        self.white_list = config.white_list_location
-        self.black_list = config.black_list_location
-        self.channel_location = config.channel_location
-        self.known_users_location = config.known_users_location
-        self.ban_reason = config.ban_reason
-        self.l = config.logger
+        self.is_armed = config.is_armed
+        self.l = config.logger or Logger(console_log=True)
+        self.db = db
+        self.db_cfg = DbConfig.from_env()
         self.await_login = True
         self.even_subs = []
         self.auth_url = config.auth_url
@@ -50,680 +68,735 @@ class StreamerShieldTwitch:
         self.eventsub_url = config.eventsub_url
         self.collect_data = config.collect_data
         self.age_threshold = config.age_threshold
+        self.conf_restrict = config.conf_restrict
+        self.conf_monitor = config.conf_monitor
+        self.enable_cli = config.enable_cli
         self.admin = config.admin
+        self.running = False
+        self._stopping = False
+        self._db_healthy = False
+        self._shutdown_event: Optional[asyncio.Event] = None
         self.commands = {
-        "help":{
-                "help": "!help: prints all commands",
-                "value": False,
-                "cli_func": self.help_cli,
-                "twt_func": self.help_twitch,
-                "permissions": 0
-            },
-        "stop":{
-                "help": "!stop: stops the process (Not available for Twitch)",
-                "value": False,
-                "cli_func": self.stop_cli,
-                "twt_func": self.stop_twitch,
-                "permissions": 10
-        },
-        "arm":{
-                "help": "!arm: enables StreamerShield to ban users",
-                "value": False,
-                "cli_func": self.arm_cli,
-                "twt_func": self.arm_twitch,
-                "permissions": 10
-                },
-        "disarm":{
-                "help": "!disarm: stops StreamerShield from banning users",
-                "value": False,
-                "cli_func": self.disarm_cli,
-                "twt_func": self.disarm_twitch,
-                "permissions": 5
-                },
-        "leave_me":{
-                "help": "!leave_me: leaves this chat",
-                "value": False,
-                "cli_func": self.leave_cli,
-                "twt_func": self.leave_me_twitch,
-                "permissions": 5
-                },
-        "leave":{
-                "help": "!leave chat_name: leaves a chat",
-                "value": True,
-                "cli_func": self.leave_cli,
-                "twt_func": self.leave_twitch,
-                "permissions": 10
-                },
-        "whitelist":{
-                "help": "!whitelist user_name: whitelist user",
-                "value": True,
-                "cli_func": self.whitelist_cli,
-                "twt_func": self.whitelist_twitch,
-                "permissions": 5
-                },
-        "unwhitelist":{
-                "help": "!unwhitelist user_name: removes user from whitelist",
-                "value": True,
-                "cli_func": self.unwhitelist_cli,
-                "twt_func": self.unwhitelist_twitch,
-                "permissions": 5
-                },
-        "blacklist":{
-                "help": "!blacklist user_name: blacklist user",
-                "value": True,
-                "cli_func": self.blacklist_cli,
-                "twt_func": self.blacklist_twitch,
-                "permissions": 5
-                },
-        "unblacklist":{
-                "help": "!unblacklist user_name: removes user from blacklist",
-                "value": True,
-                "cli_func": self.unblacklist_cli,
-                "twt_func": self.unblacklist_twitch,
-                "permissions": 5
-                }, 
-        "streamershield":{
-            "help": "!streamershield : prints info about the shield",
-                "value": False,
-                "cli_func": self.shield_info_cli,
-                "twt_func": self.shield_info_twitch,
-                "permissions": 0
-                },
-        "shield":{
-            "help": "!shield : prints info about the shield",
-                "value": False,
-                "cli_func": self.shield_info_cli,
-                "twt_func": self.shield_info_twitch,
-                "permissions": 0
-                },
-        "pat":{
-            "help": "!pat [user_name] : pats user",
-                "value": True,
-                "cli_func": self.pat_cli,
-                "twt_func": self.pat_twitch,
-                "permissions": 0
-                }
-        ,
-        "scam":{
-            "help": "!scam [user_name] : evaluates username, if given",
-                "value": True,
-                "cli_func": self.scam_cli,
-                "twt_func": self.scam_twitch,
-                "permissions": 0
-                },
-        "test":{
-            
-            "help": "!scam [user_name] : evaluates username, if given",
-                "value": True,
-                "cli_func": self.test_cli,
-                "twt_func": self.test_twitch,
-                "permissions": 10
+            "help": {"help": "!help: prints all commands", "value": False, "cli_func": self.help_cli, "twt_func": self.help_twitch, "permissions": 0},
+            "stop": {"help": "!stop: stops the process (Not available for Twitch)", "value": False, "cli_func": self.stop_cli, "twt_func": self.stop_twitch, "permissions": 10},
+            "arm": {"help": "!arm: enables StreamerShield to restrict users", "value": False, "cli_func": self.arm_cli, "twt_func": self.arm_twitch, "permissions": 10},
+            "disarm": {"help": "!disarm: stops StreamerShield from restricting users", "value": False, "cli_func": self.disarm_cli, "twt_func": self.disarm_twitch, "permissions": 5},
+            "leave_me": {"help": "!leave_me: leaves this chat", "value": False, "cli_func": self.leave_cli, "twt_func": self.leave_me_twitch, "permissions": 5},
+            "leave": {"help": "!leave chat_name: leaves a chat", "value": True, "cli_func": self.leave_cli, "twt_func": self.leave_twitch, "permissions": 10},
+            "whitelist": {"help": "!whitelist user_name: whitelist user", "value": True, "cli_func": self.whitelist_cli, "twt_func": self.whitelist_twitch, "permissions": 5},
+            "unwhitelist": {"help": "!unwhitelist user_name: removes user from whitelist", "value": True, "cli_func": self.unwhitelist_cli, "twt_func": self.unwhitelist_twitch, "permissions": 5},
+            "blacklist": {"help": "!blacklist user_name: blacklist user", "value": True, "cli_func": self.blacklist_cli, "twt_func": self.blacklist_twitch, "permissions": 5},
+            "unblacklist": {"help": "!unblacklist user_name: removes user from blacklist + clears their suspicious status here", "value": True, "cli_func": self.unblacklist_cli, "twt_func": self.unblacklist_twitch, "permissions": 5},
+            "unrestrict": {"help": "!unrestrict user_name: clears a user's suspicious status in this channel", "value": True, "cli_func": self.unrestrict_cli, "twt_func": self.unrestrict_twitch, "permissions": 5},
+            "streamershield": {"help": "!streamershield : prints info about the shield", "value": False, "cli_func": self.shield_info_cli, "twt_func": self.shield_info_twitch, "permissions": 0},
+            "shield": {"help": "!shield : prints info about the shield", "value": False, "cli_func": self.shield_info_cli, "twt_func": self.shield_info_twitch, "permissions": 0},
+            "pat": {"help": "!pat [user_name] : pats user", "value": True, "cli_func": self.pat_cli, "twt_func": self.pat_twitch, "permissions": 0},
+            "scam": {"help": "!scam [user_name] : evaluates username, if given", "value": True, "cli_func": self.scam_cli, "twt_func": self.scam_twitch, "permissions": 0},
         }
-        }
-        pass
-          
-    
+
+    # ------------------------------------------------------------------ startup
     async def run(self):
-        global twitch, auth, app, init_login
-        
-        self.l.info("Shield Starting up")
-        
+        global twitch, bot_auth, id_auth
+        self.l.info("Shield starting up")
+
+        await self.db.connect(self.db_cfg)
+        await self.db.init_schema()
+
         twitch = await Twitch(self.__app_id, self.__app_secret)
-        auth = UserAuthenticator(twitch, TARGET_SCOPE, url=self.auth_url)
-        
-        while(self.await_login):
+        twitch.user_auth_refresh_callback = self._on_token_refresh
+        # Two authenticators share the /login/confirm callback (routed by OAuth state):
+        #   bot_auth: full scopes, used once to authorize the bot account.
+        #   id_auth:  no scopes, used for dashboard identity logins (streamers + admin).
+        bot_auth = UserAuthenticator(twitch, TARGET_SCOPE, url=self.auth_url)
+        id_auth = UserAuthenticator(twitch, [], url=self.auth_url, force_verify=False)
+
+        # Serve OAuth + /health (Quart) on this same event loop; no second thread.
+        self._shutdown_event = asyncio.Event()
+        hyper = HyperConfig()
+        hyper.bind = ["0.0.0.0:5000"]
+        hyper.accesslog = "-"
+        self._web_task = asyncio.create_task(
+            serve(app, hyper, shutdown_trigger=self._shutdown_event.wait)
+        )
+        self._db_task = asyncio.create_task(self._db_health_loop())
+
+        # Restore auth from a previous run so restarts are unattended.
+        tokens = await self.db.load_tokens()
+        if tokens:
             try:
-                self.l.info("Shield awaiting inital login")
-                time.sleep(3)
-            except KeyboardInterrupt:
-                self.l.fail("Keyboard Interrupt, exiting") #not actually working
-                raise KeyboardInterrupt("User specified shutdown")
-        self.l.passingblue("Shield inital login successful")
+                await twitch.set_user_authentication(
+                    tokens["access_token"], TARGET_SCOPE, tokens["refresh_token"], validate=False
+                )
+                self.await_login = False
+                self.l.passingblue("Restored user authentication from database")
+            except Exception as exc:  # noqa: BLE001
+                self.l.error(f"stored token unusable, awaiting web login: {exc}")
+
+        if self.await_login:
+            self.l.info(f"Awaiting initial login — open {self.auth_url.rsplit('/login', 1)[0]}/login")
+        while self.await_login and not self._stopping:
+            await asyncio.sleep(2)
+        if self._stopping:
+            return await self._shutdown()
         self.l.passingblue("Welcome home Chief!")
-        
+
         self.eventsub = EventSubWebhook(self.eventsub_url, 8080, twitch, revocation_handler=self.esub_revoked)
-        await self.eventsub.unsubscribe_all() # unsub, other wise stuff breaky
+        await self.eventsub.unsubscribe_all()
         self.eventsub.start()
-        
-        
-        
         self.l.passingblue("Started EventSub")
-        
+
         self.user = await first(twitch.get_users(logins=self.user_name))
         self.chat = await Chat(twitch)
-
-        # register the handlers for the events you want
-
-        # listen to when the bot is done starting up and ready to join channels
         self.chat.register_event(ChatEvent.READY, self.on_ready)
-        # listen to chat join events (might not trigger, depending channel size)
         self.chat.register_event(ChatEvent.JOIN, self.on_join)
-        
         self.chat.register_event(ChatEvent.JOINED, self.on_joined)
-        # listen to chat messages
         self.chat.register_event(ChatEvent.MESSAGE, self.on_message)
         for command, value in self.commands.items():
-            self.chat.register_command(command, value['twt_func'])
+            self.chat.register_command(command, value["twt_func"])
         self.chat.start()
-        
-        
         self.running = True
-        
-        await self.cli_run()
-        
-    async def esub_revoked(self, diction : dict):
-        self.l.error(f"EventSub was revoked {diction}")
-            
-            
-    ### CLI Command Handling
-    async def command_handler(self, command :str):
-        parts = command.split(" ")
-        if parts[0] == '':
-            return
-        if not(parts[0] in self.commands.keys()):
-            self.l.error(f'Command {parts[0]} unknown')
-        if self.commands[parts[0]]['value']:
-           await self.commands[parts[0]]['cli_func'](parts[0])
-           return
-        await self.commands[parts[0]]['cli_func']()
-        
-    async def cli_run(self):
-        while(self.running):
-            try:
-                com = input("type help for available commands\n")
-                await self.command_handler(com)
-            except Exception as e:
-                self.l.error(f'Exeption in cli_run, exiting: {e}')
-                exit(1)
-    
-    async def shield_info_cli(self):
-        self.l.info('''
-                    StreamerShield is the AI ChatBot to rid twitch once and for all from scammers. More information here: https://linktr.ee/caesarlp
-                    ''')
-    
-    async def help_cli(self):
-        for command, value in self.commands.items():
-            self.l.passing(f'{value["help"]}')
-            
-    async def stop_cli(self):
-        self.l.fail("Stopping!")
-        try:
-            await self.chat.stop() #sometimes is already gone when stopped, so...
-        except:
-            pass
-        try:
+
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            with contextlib.suppress(NotImplementedError):
+                loop.add_signal_handler(sig, self._request_shutdown)
+
+        if self.enable_cli and sys.stdin and sys.stdin.isatty():
+            await self.cli_run()
+        else:
+            self.l.info("Running headless; send SIGTERM to stop")
+            await self._shutdown_event.wait()
+        await self._shutdown()
+
+    def _request_shutdown(self):
+        self.l.warning("Shutdown requested")
+        self._stopping = True
+        self.running = False
+        if self._shutdown_event is not None:
+            self._shutdown_event.set()
+
+    async def _shutdown(self):
+        self.running = False
+        with contextlib.suppress(Exception):
+            await self.chat.stop()
+        with contextlib.suppress(Exception):
+            await self.eventsub.stop()
+        with contextlib.suppress(Exception):
             await twitch.close()
-        except:
-            pass
-        raise Exception("Stopped by User") #not the most elegant but works
-    
+        with contextlib.suppress(Exception):
+            await self.db.close()
+        if self._shutdown_event is not None:
+            self._shutdown_event.set()
+        self.l.fail("StreamerShield stopped")
+
+    async def _db_health_loop(self):
+        while not self._stopping:
+            self._db_healthy = await self.db.ping()
+            await asyncio.sleep(15)
+
+    async def _on_token_refresh(self, token: str, refresh_token: str):
+        """Persist refreshed tokens so restarts don't require a new web login."""
+        scopes = " ".join(s.value for s in TARGET_SCOPE)
+        with contextlib.suppress(Exception):
+            await self.db.save_tokens(token, refresh_token, scopes)
+        self.l.info("Persisted refreshed user token")
+
+    async def esub_revoked(self, diction: dict):
+        self.l.error(f"EventSub was revoked {diction}")
+
+    # ----------------------------------------------------------------- CLI glue
+    async def command_handler(self, command: str):
+        parts = command.split(" ")
+        if parts[0] == "":
+            return
+        if parts[0] not in self.commands.keys():
+            self.l.error(f"Command {parts[0]} unknown")
+            return
+        if self.commands[parts[0]]["value"]:
+            await self.commands[parts[0]]["cli_func"](parts[0])
+            return
+        await self.commands[parts[0]]["cli_func"]()
+
+    async def cli_run(self):
+        while self.running:
+            try:
+                com = await asyncio.to_thread(input, "type help for available commands\n")
+                await self.command_handler(com)
+            except (EOFError, KeyboardInterrupt):
+                self._request_shutdown()
+                return
+            except Exception as exc:  # noqa: BLE001
+                self.l.error(f"Exception in cli_run: {exc}")
+
+    async def shield_info_cli(self):
+        self.l.info("StreamerShield is the AI ChatBot to rid twitch of scammers. https://linktr.ee/caesarlp")
+
+    async def help_cli(self):
+        for _, value in self.commands.items():
+            self.l.passing(f'{value["help"]}')
+
+    async def stop_cli(self):
+        self._request_shutdown()
+
     async def arm_cli(self):
         self.l.warning("Armed StreamerShield")
         self.is_armed = True
-        
+
     async def disarm_cli(self):
         self.l.warning("Disarmed StreamerShield")
         self.is_armed = False
-    
-    async def join_me_cli(self):
-        self.l.error("Cannot invoke join_me from cli, please use join instead")
-    
-    async def join_chat(self, name:str):
+
+    def _channel_defaults(self) -> dict:
+        """Global config values used to seed a newly added channel's settings."""
+        return {
+            "is_armed": self.is_armed,
+            "collect_data": self.collect_data,
+            "age_threshold": self.age_threshold,
+            "conf_restrict": self.conf_restrict,
+            "conf_monitor": self.conf_monitor,
+        }
+
+    async def join_chat(self, name: str):
         global twitch
-        unable_to_join =  await self.chat.join_room(name)
-        
-        if unable_to_join :
+        unable_to_join = await self.chat.join_room(name)
+        if unable_to_join:
             self.l.error(f"Unable to join {name}: {unable_to_join}")
-            #this is a bit funky
             return f"Unable to join {name}: {unable_to_join}"
         if self.chat.is_mod(name):
-            self.l.passing(f"Succsessfully joined {name}")
+            self.l.passing(f"Successfully joined {name}")
             user = await first(twitch.get_users(logins=name))
-            self.list_update(name, self.channel_location)
+            await self.db.add_channel(name, broadcaster_id=user.id, defaults=self._channel_defaults())
             try:
                 await self.new_follow_esub(user.id)
-            except:
-                return f"Unable to init EventSub, contact Admin"
-            return f"Succsessfully joined {name}"
-        self.l.error(f"Succsessfully joined {name}, but no mod status")
-        return f"Succsessfully joined {name}, but no mod status"
-            
-    async def new_follow_esub(self, id : str):
+            except Exception:
+                return "Unable to init EventSub, contact Admin"
+            return f"Successfully joined {name}"
+        self.l.error(f"Joined {name}, but no mod status")
+        return f"Successfully joined {name}, but no mod status"
+
+    async def new_follow_esub(self, id: str):
         try:
-            self.l.info(f"Initializing Follow ESub")  
-            await self.eventsub.listen_channel_follow_v2(id, self.user.id, self.on_follow) 
+            self.l.info("Initializing Follow ESub")
+            await self.eventsub.listen_channel_follow_v2(id, self.user.id, self.on_follow)
         except EventSubSubscriptionConflict as e:
-            self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionConflict {e}')
+            self.l.error(f"EventSubSubscriptionConflict {e}")
         except EventSubSubscriptionTimeout as e:
-            self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionTimeout {e}')
+            self.l.error(f"EventSubSubscriptionTimeout {e}")
         except EventSubSubscriptionError as e:
-            self.l.error(f'Error whilst subscribing to eventsub: EventSubSubscriptionError {e}')
+            self.l.error(f"EventSubSubscriptionError {e}")
         except TwitchBackendException as e:
-            self.l.error(f'Error whilst subscribing to eventsub: TwitchBackendException {e}')
-        
-        
-    async def leave_cli(self, name:str):
-        self.chat.leave_room(name)
-        self.list_update(name, self.channel_location, remove=True)
+            self.l.error(f"TwitchBackendException {e}")
+
+    async def leave_cli(self, name: str):
+        await self.chat.leave_room(name)
+        await self.db.remove_channel(name)
         self.l.passing(f"Left {name}")
-        
-    async def whitelist_cli(self, name:str):
+
+    async def whitelist_cli(self, name: str):
+        await self.db.add_to_list("whitelist", name)
         self.l.passing(f"Whitelisted {name}")
-        self.list_update(name, self.white_list)    
-        
-    async def unwhitelist_cli(self, name:str):
+
+    async def unwhitelist_cli(self, name: str):
+        await self.db.remove_from_list("whitelist", name)
         self.l.passing(f"Unwhitelisted {name}")
-        self.list_update(name, self.white_list, remove= True)   
-        
-    async def blacklist_cli(self, name:str):
+
+    async def blacklist_cli(self, name: str):
+        await self.db.add_to_list("blacklist", name)
         self.l.passing(f"Blacklisted {name}")
-        self.list_update(name, self.black_list)
-        
-    async def unblacklist_cli(self, name:str):
+
+    async def unblacklist_cli(self, name: str):
+        await self.db.remove_from_list("blacklist", name)
         self.l.passing(f"Unblacklisted {name}")
-        self.list_update(name, self.black_list, remove= True)
-     
-    async def scam_cli(self, name:str):
-        conf = await self.request_prediction(name) #will come in *1000 for use in json
-        self.l.info(f'User {name} returns conf {conf/1000}')
-  
-    async def pat_cli(self, name:str):
-        self.l.passingblue(f"You're a good boi!" )
-    
-    async def test_cli(self, name:str):
-        self.l.info(f'Restricting {name}')
-        await self.chat.send_message('caesarlp', f'/restrict {name}')
-    
-    ### Twitch Command Handling
+
+    async def scam_cli(self, name: str):
+        conf = await self._score_name(name)
+        self.l.info(f"User {name} returns conf {conf}")
+
+    async def pat_cli(self, name: str):
+        self.l.passingblue("You're a good boi!")
+
+    # ----------------------------------------------------------- Twitch commands
     async def shield_info_twitch(self, chat_command: ChatCommand):
-         await chat_command.reply('StreamerShield is the AI ChatBot to rid twitch once and for all from scammers. More information here: https://linktr.ee/caesarlp')
-    
-    async def help_twitch(self, chat_command : ChatCommand):
+        await chat_command.reply("StreamerShield is the AI ChatBot to rid twitch of scammers. https://linktr.ee/caesarlp")
+
+    async def help_twitch(self, chat_command: ChatCommand):
         permission = await self.generate_permissions(chat_command)
-        reply = ''
-        for command, value in self.commands.items():
-            if(permission < value['permissions']):
+        reply = ""
+        for _, value in self.commands.items():
+            if permission < value["permissions"]:
                 continue
-            if len(reply)+ len(f'{value["help"]}; ') > 255:
+            if len(reply) + len(f'{value["help"]}; ') > 255:
                 await chat_command.reply(reply)
-                reply = ''
+                reply = ""
             reply += f'{value["help"]}; '
         await chat_command.reply(reply)
-        
-    async def stop_twitch(self, chat_command:ChatCommand):
+
+    async def stop_twitch(self, chat_command: ChatCommand):
         if await self.verify_permission(chat_command, "disarm"):
-            await chat_command.reply("StreamerShield can only be shutdown via cli")
-           
-    async def arm_twitch(self, chat_command : ChatCommand):
+            await chat_command.reply("StreamerShield can only be shut down via cli")
+
+    async def arm_twitch(self, chat_command: ChatCommand):
         if await self.verify_permission(chat_command, "arm"):
-            await chat_command.reply("Armed StreamerShield")
-            self.l.warning("Armed StreamerShield")
-            self.is_armed = True
-        
-    async def disarm_twitch(self, chat_command : ChatCommand):
+            await self.db.update_channel_settings(chat_command.room.name, is_armed=True)
+            await chat_command.reply("Armed StreamerShield for this channel")
+            self.l.warning(f"Armed {chat_command.room.name}")
+
+    async def disarm_twitch(self, chat_command: ChatCommand):
         if await self.verify_permission(chat_command, "disarm"):
-            await chat_command.reply("Disarmed StreamerShield")
-            self.l.warning("Disarmed StreamerShield")
-            self.is_armed = False
-    
-    async def leave_me_twitch(self, chat_command : ChatCommand):
-        if await self.verify_permission(
-            chat_command, "leave_me") and (
-            not chat_command.parameter == chat_command.room.name):
+            await self.db.update_channel_settings(chat_command.room.name, is_armed=False)
+            await chat_command.reply("Disarmed StreamerShield for this channel")
+            self.l.warning(f"Disarmed {chat_command.room.name}")
+
+    async def leave_me_twitch(self, chat_command: ChatCommand):
+        if await self.verify_permission(chat_command, "leave_me") and (not chat_command.parameter == chat_command.room.name):
             await chat_command.reply("Leaving... Bye!")
-            self.list_update(chat_command.parameter, self.channel_location, remove=True)
+            await self.db.remove_channel(chat_command.parameter)
             await self.chat.leave_room(chat_command.parameter)
-            
-    async def leave_twitch(self, chat_command : ChatCommand):
-        if await self.verify_permission(
-            chat_command, "leave") and (
-            not chat_command.parameter == chat_command.room.name):
+
+    async def leave_twitch(self, chat_command: ChatCommand):
+        if await self.verify_permission(chat_command, "leave") and (not chat_command.parameter == chat_command.room.name):
             await chat_command.reply("Leaving... Bye!")
-            self.list_update(chat_command.parameter, self.channel_location, remove=True)
+            await self.db.remove_channel(chat_command.parameter)
             await self.chat.leave_room(chat_command.parameter)
-        
-    async def whitelist_twitch(self, chat_command : ChatCommand):
+
+    async def whitelist_twitch(self, chat_command: ChatCommand):
         if await self.verify_permission(chat_command, "whitelist"):
             name = chat_command.parameter.replace("@", "")
-            self.list_update(name, self.white_list)
-            await chat_command.reply(f'User {name} is now whitelisted')
-        
-    async def unwhitelist_twitch(self, chat_command : ChatCommand):
+            await self.db.add_to_list("whitelist", name)
+            await chat_command.reply(f"User {name} is now whitelisted")
+
+    async def unwhitelist_twitch(self, chat_command: ChatCommand):
         if await self.verify_permission(chat_command, "unwhitelist"):
             name = chat_command.parameter.replace("@", "")
-            self.list_update(name, self.white_list, remove = True)
-            await chat_command.reply(f'User {name} is no longer whitelisted')
-            
-    async def blacklist_twitch(self, chat_command : ChatCommand):
+            await self.db.remove_from_list("whitelist", name)
+            await chat_command.reply(f"User {name} is no longer whitelisted")
+
+    async def blacklist_twitch(self, chat_command: ChatCommand):
         if await self.verify_permission(chat_command, "blacklist"):
             name = chat_command.parameter.replace("@", "")
-            self.list_update(name, self.black_list)
-            await chat_command.reply(f'User {name} is now blacklisted')
-        
-    async def unblacklist_twitch(self, chat_command : ChatCommand):
+            await self.db.add_to_list("blacklist", name)
+            await chat_command.reply(f"User {name} is now blacklisted")
+
+    async def unblacklist_twitch(self, chat_command: ChatCommand):
         if await self.verify_permission(chat_command, "unblacklist"):
             name = chat_command.parameter.replace("@", "")
-            self.list_update(name, self.black_list, remove = True)
-            await chat_command.reply(f'User {name} is no longer blacklisted')
-    
-    async def scam_twitch(self, chat_command : ChatCommand):
-        try:
+            await self.db.remove_from_list("blacklist", name)
+            await self._remove_suspicious(chat_command.room.room_id, name)
+            await chat_command.reply(f"User {name} is no longer blacklisted")
+
+    async def unrestrict_cli(self, name: str):
+        self.l.warning("unrestrict needs a channel context; use a chat command or the dashboard")
+
+    async def unrestrict_twitch(self, chat_command: ChatCommand):
+        if await self.verify_permission(chat_command, "unrestrict"):
             name = chat_command.parameter.replace("@", "")
-        except:
-            pass
-        if not name:
-            name = chat_command.user.name
-            
-        conf = await self.request_prediction(name) #will come in *1000 for use in json
-            
-        await chat_command.reply(f'@{name} is to {conf/10}% a scammer')
-        
-    async def pat_twitch(self, chat_command : ChatCommand):
-        self_pat = False
-        try:
-            name = chat_command.parameter.replace("@", "")
-        except:
-            pass
-        if not name:
-            self_pat = True
-            name = chat_command.user.name
-        l = self.load_list(self.known_users_location)
-        for item in l:
-            if "pat" in item:
-                pats = item["pat"]
-        pats += 1
-        self.list_update({"pat": pats}, self.known_users_location)
-        if self_pat:
-            await chat_command.reply(f"You just gave yourself a pat on the back! well deserved LoveYourself {pats} pats have been given")
+            ok = await self._remove_suspicious(chat_command.room.room_id, name)
+            await chat_command.reply(
+                f"Cleared suspicious status for {name}" if ok else f"Could not clear status for {name}"
+            )
+
+    async def scam_twitch(self, chat_command: ChatCommand):
+        name = chat_command.parameter.replace("@", "") if chat_command.parameter else chat_command.user.name
+        conf = await self._score_name(name, chat_command.room.room_id)
+        if conf is None:
+            await chat_command.reply(f"Could not evaluate @{name}")
             return
-        await chat_command.reply(f'@{chat_command.user.name} gives @{name} a pat! peepoPat {pats} pats have been given')
-    
-    async def test_twitch(self,  chat_command : ChatCommand):
-        name = chat_command.parameter.replace("@", "")
-        await chat_command.reply(f'Trying to restrict user {name}')
-        self.l.info(f'Restricting {name}')
-        await self.chat.send_raw_irc_message(f'/restrict {name}')
-    ###Event Subs and Chat events
-    
-    async def on_ready(self,ready_event: EventData):
-        channels :list = self.load_list(self.channel_location)
+        await chat_command.reply(f"@{name} is to {round(conf * 100)}% a scammer")
+
+    async def pat_twitch(self, chat_command: ChatCommand):
+        self_pat = not chat_command.parameter
+        name = chat_command.user.name if self_pat else chat_command.parameter.replace("@", "")
+        pats = await self.db.incr_setting("pat_count")
+        if self_pat:
+            await chat_command.reply(f"You just gave yourself a pat on the back! well deserved LoveYourself {pats} pats given")
+            return
+        await chat_command.reply(f"@{chat_command.user.name} gives @{name} a pat! peepoPat {pats} pats given")
+
+    # --------------------------------------------------------- events & checking
+    async def on_ready(self, ready_event: EventData):
+        channels = await self.db.all_channels()
         channels.append(self.chat.username)
         await ready_event.chat.join_room(channels)
         for channel in channels:
-            user = await first(twitch.get_users(logins = [channel]))
+            user = await first(twitch.get_users(logins=[channel]))
+            await self.db.set_channel_id(channel, user.id)
             try:
                 await self.new_follow_esub(user.id)
-            except:
-                self.l.error(f"Follow ESub for {user.login} not initialized")
-            self.l.info(f"Follow Esub for {user.login} initialized")  
-    
+                self.l.info(f"Follow ESub for {user.login} initialized")
+            except Exception:
+                self.l.error(f"Follow ESub for {channel} not initialized")
+
     async def on_joined(self, joined_event: JoinedEvent):
         await joined_event.chat.send_message(joined_event.room_name, "This Chat is now protected with StreamerShield! protecc")
-        
-    async def on_message(self, msg : ChatMessage):
+
+    async def on_message(self, msg: ChatMessage):
         name = msg.user.name
-        privilege = (msg.user.mod or msg.user.vip or msg.user.subscriber or msg.user.turbo)
-        if(privilege):
-            self.list_update(name, self.white_list)
+        if msg.user.mod or msg.user.vip or msg.user.subscriber or msg.user.turbo:
+            await self.db.add_to_list("whitelist", name)
             return
         await self.check_user(name, msg.room.room_id)
-        
-    async def on_join(self, join_event : JoinEvent):
-        name = join_event.user_name
-        
-        await self.check_user(name, join_event.room.room_id)
-    
-    
-    # Onfollow will only work with headless webhook approach
-       
+
+    async def on_join(self, join_event: JoinEvent):
+        await self.check_user(join_event.user_name, join_event.room.room_id)
+
     async def on_follow(self, data: ChannelFollowEvent):
         name = data.event.user_name
-        self.l.passing(f"WE GOT A FOLLOW!!!!! {name}")
+        self.l.passing(f"New follow: {name}")
         await self.check_user(name, data.event.broadcaster_user_id)
-    
-    
-    ### StreamerShield Main
-    async def check_user(self, name :str, room_name_id):
-        if await self.check_white_list(name): 
+
+    async def check_user(self, name: str, channel_id):
+        if await self.db.is_listed("whitelist", name):
             self.l.info(f"{name} is found in whitelist")
             return
-        if await self.check_black_list(name): 
-            self.l.warning(f"{name} is found in blacklist")
-            if self.is_armed:
-                user = await first(twitch.get_users(logins=name))
-                await self.chat.send_message(room_name_id, f'/restrict {name}')
-                #await twitch.ban_user(room_name_id, room_name_id, user.id, self.ban_reason)
-            return
-        #get prediction from REST 
-        conf = await self.request_prediction(name) #will come in *1000 for use in json
-        
-        #if datacollection is turned on, collect known users and their account age
         user = await first(twitch.get_users(logins=name))
-        if self.collect_data and (not self.check_known_users(name)):
-            self.list_update({name:(math.floor(conf), await self.calculate_account_age(user))}, self.known_users_location)
-            
-        conf = conf/1000 #turn into actual conf 0...1
-        #check for account age    
-        if await self.check_account_age(user=user):
-            self.l.passing(f'Found Account older than {self.age_threshold} Months, name : {name}, conf: {conf})')
+        if user is None:
+            self.l.error(f"Could not look up user {name}")
             return
-        
-        
-        if (bool(np.round(conf))):
-            if self.is_armed:
-                #TODO: Check either for account age or follow count if possible
-                self.l.fail(f'Banned user {name}')
-                await twitch.ban_user(room_name_id, self.user.id, user.id, self.ban_reason) #self.user to ban using the Streamershield account
-            self.l.warning(f'User {name} was classified as a scammer with conf {conf}')
+
+        # Effective settings are per-channel; fall back to the global config defaults.
+        cs = await self.db.get_channel_by_id(channel_id)
+        armed = cs["is_armed"] if cs else self.is_armed
+        collect = cs["collect_data"] if cs else self.collect_data
+        age_threshold = cs["age_threshold"] if cs else self.age_threshold
+        conf_restrict = cs["conf_restrict"] if cs else self.conf_restrict
+        conf_monitor = cs["conf_monitor"] if cs else self.conf_monitor
+
+        if await self.db.is_listed("blacklist", name):
+            self.l.warning(f"{name} is found in blacklist")
+            if armed:
+                await self._apply_suspicious(channel_id, user.id, LowTrustStatus.RESTRICTED)
+            await self._maybe_record(user, channel_id, None, None, "blacklisted", collect)
             return
-        self.l.passing(f'User {name} was classified as a human with conf {conf}')
-            
-    
-    async def calculate_account_age(self, user: TwitchUser):
-        current_time = datetime.now()
-        creation_time = user.created_at
-        age_year = current_time.year - creation_time.year
-        age_months = current_time.month - creation_time.month
-        age_days = current_time.day - creation_time.day
-        return(age_year, age_months, age_days)
-    
-    ### Utility functions    
-    async def check_account_age(self, user: TwitchUser):
-        age = await self.calculate_account_age(user)
-        
-        if age[0] > 0:
-            return True
-        elif age[1] > self.age_threshold:
-            return True
-        return False
-            
-    
-    async def generate_permissions(self, chat_command : ChatCommand):
-        if(chat_command.user.name == self.admin):
-            permission = 10
-        elif(chat_command.user.mod or chat_command.user.name == chat_command.room.name):
-            permission = 5
-        elif(not (chat_command.user.mod or chat_command.user.name == chat_command.room.name)):
-            permission = 0
-        return permission
-    
-    async def verify_permission(self, chat_command : ChatCommand, command : str):
+
+        payload = await self._gather(user, channel_id)
+        conf = await self.request_prediction(payload)
+        if conf is None:
+            self.l.error(f"No prediction for {name}; skipping")
+            await self._maybe_record(user, channel_id, payload, None, "prediction_failed", collect)
+            return
+
+        if payload["account_age_days"] >= age_threshold * 30:
+            self.l.passing(f"{name} older than {age_threshold} months (conf {conf:.2f}); trusted")
+            await self._maybe_record(user, channel_id, payload, conf, "aged_out", collect)
+            return
+
+        status = decide_status(conf, conf_restrict, conf_monitor)
+        if status != LowTrustStatus.NONE and armed:
+            ok = await self._apply_suspicious(channel_id, user.id, status)
+            action = status if ok else f"{status}_failed"
+        elif status != LowTrustStatus.NONE:
+            action = f"unarmed_{status}"  # would have acted, but the channel is disarmed
+        else:
+            action = LowTrustStatus.NONE
+
+        if status != LowTrustStatus.NONE:
+            self.l.warning(f"{name} conf {conf:.2f} -> {action}")
+        else:
+            self.l.passing(f"{name} conf {conf:.2f} -> human")
+        await self._maybe_record(user, channel_id, payload, conf, action, collect)
+
+    async def _apply_suspicious(self, broadcaster_id, user_id, status) -> bool:
+        ok = await set_suspicious_status(twitch, str(broadcaster_id), self.user.id, str(user_id), status, logger=self.l)
+        if ok:
+            self.l.fail(f"Set suspicious status '{status}' on {user_id} in {broadcaster_id}")
+        return ok
+
+    async def _remove_suspicious(self, broadcaster_id, name) -> bool:
+        user = await first(twitch.get_users(logins=name))
+        if user is None:
+            return False
+        ok = await remove_suspicious_status(twitch, str(broadcaster_id), self.user.id, str(user.id), logger=self.l)
+        if ok:
+            self.l.passing(f"Cleared suspicious status on {name} in {broadcaster_id}")
+        return ok
+
+    async def _gather(self, user: TwitchUser, channel_id) -> dict:
+        """Build the JSON-safe prediction payload from a Twitch user + follow signal."""
+        follows, follow_age = await self._follow_signal(channel_id, user.id)
+        return {
+            "login": user.login,
+            "display_name": user.display_name,
+            "description": user.description,
+            "account_age_days": features.account_age_days(user.created_at),
+            "follower_count": await self._best_effort_follower_count(user.id),
+            "follows_channel": follows,
+            "follow_age_days": follow_age,
+            "broadcaster_type": user.broadcaster_type,
+            "profile_image_url": user.profile_image_url,
+            "has_default_avatar": features.has_default_avatar(user.profile_image_url),
+        }
+
+    async def _follow_signal(self, channel_id, user_id):
+        """Does this user follow the protected channel, and for how long? (bot is a mod there)."""
+        try:
+            res = await twitch.get_channel_followers(broadcaster_id=str(channel_id), user_id=str(user_id))
+            if res.total and res.total >= 1 and res.data:
+                age = (datetime.now(timezone.utc) - res.data[0].followed_at).days
+                return True, max(0, age)
+            return False, None
+        except Exception as exc:  # noqa: BLE001
+            self.l.warning(f"follow signal unavailable for {user_id}: {exc}")
+            return None, None
+
+    async def _best_effort_follower_count(self, user_id) -> Optional[int]:
+        """The suspect's own follower count — only obtainable where we mod their channel."""
+        try:
+            res = await twitch.get_channel_followers(broadcaster_id=str(user_id))
+            return res.total
+        except Exception:  # noqa: BLE001 - expected for arbitrary users
+            return None
+
+    async def _score_name(self, name: str, channel_id=None) -> Optional[float]:
+        user = await first(twitch.get_users(logins=name))
+        if user is None:
+            return None
+        return await self.request_prediction(await self._gather(user, channel_id))
+
+    async def _maybe_record(self, user, channel_id, payload, conf, action, collect=None):
+        if collect is None:
+            collect = self.collect_data
+        if not collect:
+            return
+        obs = {
+            "twitch_user_id": user.id,
+            "login": user.login,
+            "display_name": user.display_name,
+            "description": user.description,
+            "account_created_at": user.created_at,
+            "broadcaster_type": user.broadcaster_type,
+            "profile_image_url": user.profile_image_url,
+            "has_default_avatar": features.has_default_avatar(user.profile_image_url),
+            "model_confidence": conf,
+            "action_taken": action,
+            "is_armed": self.is_armed,
+            "channel_id": str(channel_id),
+        }
+        if payload is not None:
+            obs.update(
+                follower_count=payload["follower_count"],
+                follows_channel=payload["follows_channel"],
+                follow_age_days=payload["follow_age_days"],
+            )
+        with contextlib.suppress(Exception):
+            await self.db.record_observation(obs)
+
+    async def request_prediction(self, payload: dict) -> Optional[float]:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(self.shield_url, json=payload)
+                resp.raise_for_status()
+                return float(resp.json()["result"])
+        except Exception as exc:  # noqa: BLE001
+            self.l.error(f"prediction request failed: {exc}")
+            return None
+
+    # --------------------------------------------------------------- permissions
+    async def generate_permissions(self, chat_command: ChatCommand):
+        if chat_command.user.name == self.admin:
+            return 10
+        if chat_command.user.mod or chat_command.user.name == chat_command.room.name:
+            return 5
+        return 0
+
+    async def verify_permission(self, chat_command: ChatCommand, command: str):
         permission = await self.generate_permissions(chat_command)
         return self.commands[command]["permissions"] <= permission
-    
-    async def user_refresh(token: str, refresh_token: str):
-        print(f'my new user token is: {token}')
-
-    async def app_refresh(token: str):
-        print(f'my new app token is: {token}')
-        
-    async def check_white_list(self, name):
-        return self.check_list(name, self.white_list)
-    
-    async def check_black_list(self, name):
-        return self.check_list(name, self.black_list)
-     
-     
-    def check_known_users(self, name:str):
-        l = self.load_list(self.known_users_location)
-        
-        for d in l:
-            if name.lower() in d:
-                return True
-            
-        return False   
-    
-    def check_list(self, name : str, list_name):
-        l = self.load_list(list_name)
-        r = (name in l) or (name.lower() in l)
-        return r
-        
-    def list_update(self, name, list_name, remove=False):
-        l : list = self.load_list(list_name)
-        if type(name) == str:
-            if name.lower() in l and not remove:
-                return
-            if remove:
-                l.remove(name.lower())
-            else:
-                l.append(name.lower())
-        try:
-            if name["pat"]: 
-                for item in l:
-                    if "pat" in item:
-                        item["pat"] = name["pat"]
-        except:
-            l.append(name.lower())
-            pass
-        self.write_list(l, list_name)
-
-    def write_list(self, name_list, file_path):
-        try:
-            with open(os.path.join(file_path), "w") as f:
-                f.write(json.dumps(name_list, indent=4))  # Use indent for pretty-printing
-        except Exception as e:
-            print(f"An error occurred while writing to {file_path}.json: {str(e)}")
-
-    async def check_for_privilege(self, user : ChatUser):
-        if(user.mod or user.vip or user.subscriber or user.turbo):
-            self.list_update(user.name, self.white_list)
-            return True
-        return False
-    
-    def load_list(self, file_path):
-        if os.path.exists(file_path):
-            with open(file_path, "r") as f:
-                i = json.loads(f.read())
-                return i
-        else: 
-            raise FileNotFoundError
-    
-    async def request_prediction(self, name : str):
-        data = {"input_string": name}
-
-        response = requests.post(self.shield_url, json=data)
-
-        if response.status_code == 200:
-            return response.json()["result"]
-            
-        else:
-            self.l.error(response.json())
 
 
 app = Quart(__name__)
-
 chat_bot: StreamerShieldTwitch
-TARGET_SCOPE : list
-app.secret_key = 'your_secret_key'
+TARGET_SCOPE: list
+bot_auth: UserAuthenticator
+id_auth: UserAuthenticator
+app.secret_key = os.environ.get("FLASK_SECRET", "streamer-shield-dev-secret")
 
 
+def _session_login():
+    return session.get("login")
 
 
+def _is_admin() -> bool:
+    return _session_login() == (chat_bot.admin or "").lower()
 
 
-
-@app.route('/login')
-def login():
-    return redirect(auth.return_auth_url())
+def _can_manage(channel_login: str) -> bool:
+    return _is_admin() or (_session_login() == (channel_login or "").lower())
 
 
-
-@app.route('/login/confirm')
-async def login_confirm():
-    global session, chat_bot
-    args = request.args
-    state = request.args.get('state')
-    if state != auth.state:
-        return 'Bad state', 401
-    code = request.args.get('code')
-    if code is None:
-        return 'Missing code', 400
+def _int(v, default):
     try:
-        token, refresh = await auth.authenticate(user_token=code)
-       
-        if chat_bot.await_login:
-            await twitch.set_user_authentication(token, TARGET_SCOPE, refresh)
-            ret_val = "Welcome home chief!"
-            
-        user_info = await first(twitch.get_users())
-        name = user_info.login
-        
-        if not chat_bot.await_login:
-            ret_val =  await chat_bot.join_chat(name)
-        
-    except TwitchAPIException as e:
-        return 'Failed to generate auth token', 400
-    
-    chat_bot.await_login = False
-    return ret_val
+        return int(v)
+    except (TypeError, ValueError):
+        return default
 
 
-    
+def _float(v, default):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
 
- 
-def main():
-    asyncio.run(chat_bot.run())
+
+async def _set_session_from_token(token: str):
+    info = await validate_token(token, auth_base_url=twitch.auth_base_url)
+    session["login"] = (info.get("login") or "").lower()
+    session["user_id"] = info.get("user_id")
 
 
-        
-        
-        
+@app.route("/health")
+async def health():
+    ok = getattr(chat_bot, "running", False) and getattr(chat_bot, "_db_healthy", False)
+    return ("", 200) if ok else ("not ready", 503)
 
+
+@app.route("/login")
+def login():
+    # First-time setup: the bot account authorizes itself (full scopes). Afterwards
+    # everyone (streamers + admin) logs in for identity only (no scopes).
+    if getattr(chat_bot, "await_login", False):
+        return redirect(bot_auth.return_auth_url())
+    return redirect(id_auth.return_auth_url())
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
+
+
+@app.route("/login/confirm")
+async def login_confirm():
+    state = request.args.get("state")
+    code = request.args.get("code")
+    if code is None:
+        return "Missing code", 400
+    try:
+        if chat_bot.await_login and state == bot_auth.state:
+            token, refresh = await bot_auth.authenticate(user_token=code)
+            await twitch.set_user_authentication(token, TARGET_SCOPE, refresh, validate=False)
+            await chat_bot.db.save_tokens(token, refresh, " ".join(s.value for s in TARGET_SCOPE))
+            chat_bot.await_login = False
+            await _set_session_from_token(token)
+            return redirect("/")
+        if state == id_auth.state:
+            token, _ = await id_auth.authenticate(user_token=code)
+            await _set_session_from_token(token)
+            return redirect("/")
+    except TwitchAPIException:
+        return "Failed to generate auth token", 400
+    return "Bad state", 401
+
+
+@app.route("/")
+async def index():
+    user = _session_login()
+    if not user:
+        return dashboard.render_landing()
+    if _is_admin():
+        channels = await chat_bot.db.list_channels()
+        wl = await chat_bot.db.list_all("whitelist")
+        bl = await chat_bot.db.list_all("blacklist")
+        obs = await chat_bot.db.recent_observations(limit=50)
+        return dashboard.render_admin(user, channels, wl, bl, obs)
+    channel = await chat_bot.db.get_channel_by_login(user)
+    if not channel:
+        return dashboard.render_no_channel(user)
+    obs = await chat_bot.db.recent_observations(channel_id=channel.get("broadcaster_id"), limit=50)
+    return dashboard.render_streamer(user, channel, obs)
+
+
+@app.route("/channel/settings", methods=["POST"])
+async def channel_settings():
+    if not _session_login():
+        return redirect("/login")
+    form = await request.form
+    channel = (form.get("channel") or "").lower()
+    if not _can_manage(channel):
+        return "Forbidden", 403
+    await chat_bot.db.update_channel_settings(
+        channel,
+        is_armed=form.get("is_armed") is not None,
+        collect_data=form.get("collect_data") is not None,
+        age_threshold=_int(form.get("age_threshold"), 6),
+        conf_restrict=_float(form.get("conf_restrict"), 0.9),
+        conf_monitor=_float(form.get("conf_monitor"), 0.5),
+    )
+    return redirect("/")
+
+
+@app.route("/channel/leave", methods=["POST"])
+async def channel_leave():
+    if not _session_login():
+        return redirect("/login")
+    form = await request.form
+    channel = (form.get("channel") or "").lower()
+    if not _can_manage(channel):
+        return "Forbidden", 403
+    with contextlib.suppress(Exception):
+        await chat_bot.chat.leave_room(channel)
+    await chat_bot.db.remove_channel(channel)
+    return redirect("/")
+
+
+@app.route("/admin/add-channel", methods=["POST"])
+async def admin_add_channel():
+    if not _is_admin():
+        return "Forbidden", 403
+    form = await request.form
+    channel = (form.get("channel") or "").strip().lower()
+    if channel:
+        await chat_bot.join_chat(channel)
+    return redirect("/")
+
+
+@app.route("/admin/list", methods=["POST"])
+async def admin_list():
+    if not _is_admin():
+        return "Forbidden", 403
+    form = await request.form
+    kind = form.get("kind")
+    action = form.get("action")
+    entry = (form.get("login") or "").strip()
+    if kind in ("whitelist", "blacklist") and entry:
+        if action == "add":
+            await chat_bot.db.add_to_list(kind, entry)
+        elif action == "remove":
+            await chat_bot.db.remove_from_list(kind, entry)
+    return redirect("/")
+
+
+@app.route("/observation/unrestrict", methods=["POST"])
+async def observation_unrestrict():
+    if not _session_login():
+        return redirect("/login")
+    form = await request.form
+    channel_id = form.get("channel_id")
+    user_login = (form.get("login") or "").strip()
+    ch = await chat_bot.db.get_channel_by_id(channel_id) if channel_id else None
+    owner = ch["login"] if ch else None
+    if not (_is_admin() or (owner and _session_login() == owner)):
+        return "Forbidden", 403
+    if channel_id and user_login:
+        await chat_bot._remove_suspicious(channel_id, user_login)
+    return redirect("/")
+
+
+def _build_target_scope():
+    return [
+        AuthScope.CHAT_READ,
+        AuthScope.CHAT_EDIT,
+        AuthScope.MODERATOR_READ_CHATTERS,
+        AuthScope.MODERATOR_READ_FOLLOWERS,
+        AuthScope.MODERATOR_READ_SUSPICIOUS_USERS,
+        SUSPICIOUS_MANAGE_SCOPE,
+    ]
 
 
 if __name__ == "__main__":
-    config = TwitchConfig
-    config.app_secret = APP_SECRET
-    config.app_id = APP_ID
-    config.max_lenght = 31
-    config.user_name = TWITCH_USER
-    TARGET_SCOPE = [AuthScope.CHAT_READ,
-                    AuthScope.CHAT_EDIT,
-                    AuthScope.MODERATOR_READ_CHATTERS,
-                    AuthScope.MODERATOR_MANAGE_BANNED_USERS,
-                    AuthScope.MODERATOR_READ_FOLLOWERS]
+    logger = Logger(console_log=True)
+    config = build_twitch_config(logger)
+    TARGET_SCOPE = _build_target_scope()
     config.user_scopes = TARGET_SCOPE
-    config.white_list_location = "whitelist.json"
-    config.black_list_location = "blacklist.json"
-    config.channel_location = "joinable_channels.json"
-    config.known_users_location = "known_users.json"
-    config.collect_data = True
-    config.admin = 'caesarlp'
-    config.eventsub_url = EVENTSUB_URL
-    config.shield_url = SHIELD_URL
-    config.auth_url = AUTH_URL
-    config.is_armed = True
-    
-    chat_bot = StreamerShieldTwitch(config)
-    
-    
-    
-    process2 = threading.Thread(target=main)
-
-    
-    process2.start()
-    app.run('0.0.0.0')
-    
-    process2.join()
-    
-    
+    database = Database(logger)
+    chat_bot = StreamerShieldTwitch(config, database)
+    asyncio.run(chat_bot.run())

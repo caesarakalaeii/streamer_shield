@@ -8,6 +8,7 @@ Only the bot uses this; the model API has no database dependency.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional
 
 import asyncpg
@@ -104,9 +105,11 @@ _OBS_COLUMNS = (
 class Database:
     def __init__(self, logger: Optional[Logger] = None) -> None:
         self._pool: Optional[asyncpg.Pool] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._log = logger
 
     async def connect(self, cfg: DbConfig) -> None:
+        self._loop = asyncio.get_running_loop()
         self._pool = await asyncpg.create_pool(
             host=cfg.host,
             port=cfg.port,
@@ -120,6 +123,34 @@ class Database:
         )
         if self._log:
             self._log.passingblue(f"Connected to Postgres {cfg.host}:{cfg.port}/{cfg.name}")
+
+    # --- loop bridging --------------------------------------------------------
+    # The asyncpg pool is bound to the loop it was created on (the main loop).
+    # twitchAPI runs Chat and EventSub callbacks on their own threads/loops, so a
+    # DB call from on_ready/on_message/on_join/on_follow would otherwise raise
+    # "got Future attached to a different loop". Every pool primitive is funnelled
+    # through _run, which hops back onto the owning loop when called elsewhere.
+    async def _run(self, coro):
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if self._loop is None or running is self._loop:
+            return await coro
+        fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return await asyncio.wrap_future(fut)
+
+    async def _execute(self, *args, **kwargs):
+        return await self._run(self._pool.execute(*args, **kwargs))
+
+    async def _fetch(self, *args, **kwargs):
+        return await self._run(self._pool.fetch(*args, **kwargs))
+
+    async def _fetchrow(self, *args, **kwargs):
+        return await self._run(self._pool.fetchrow(*args, **kwargs))
+
+    async def _fetchval(self, *args, **kwargs):
+        return await self._run(self._pool.fetchval(*args, **kwargs))
 
     async def init_schema(self) -> None:
         assert self._pool is not None, "connect() must be called before init_schema()"
@@ -144,7 +175,7 @@ class Database:
 
     # --- whitelist / blacklist ------------------------------------------------
     async def is_listed(self, kind: str, login: str) -> bool:
-        row = await self._pool.fetchval(
+        row = await self._fetchval(
             "SELECT 1 FROM list_entries WHERE kind = $1 AND login = $2",
             kind,
             login.lower(),
@@ -152,7 +183,7 @@ class Database:
         return row is not None
 
     async def add_to_list(self, kind: str, login: str) -> None:
-        await self._pool.execute(
+        await self._execute(
             "INSERT INTO list_entries (kind, login) VALUES ($1, $2) "
             "ON CONFLICT (kind, login) DO NOTHING",
             kind,
@@ -160,14 +191,14 @@ class Database:
         )
 
     async def remove_from_list(self, kind: str, login: str) -> None:
-        await self._pool.execute(
+        await self._execute(
             "DELETE FROM list_entries WHERE kind = $1 AND login = $2",
             kind,
             login.lower(),
         )
 
     async def list_all(self, kind: str) -> list[str]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             "SELECT login FROM list_entries WHERE kind = $1 ORDER BY login", kind
         )
         return [r["login"] for r in rows]
@@ -175,7 +206,7 @@ class Database:
     # --- channels (with per-channel settings) ---------------------------------
     async def add_channel(self, login: str, broadcaster_id=None, defaults: Optional[dict] = None) -> None:
         d = defaults or {}
-        await self._pool.execute(
+        await self._execute(
             """INSERT INTO channels
                  (login, broadcaster_id, is_armed, collect_data, age_threshold, conf_restrict, conf_monitor)
                VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -191,27 +222,27 @@ class Database:
         )
 
     async def set_channel_id(self, login: str, broadcaster_id) -> None:
-        await self._pool.execute(
+        await self._execute(
             "UPDATE channels SET broadcaster_id = $2 WHERE login = $1", login.lower(), str(broadcaster_id)
         )
 
     async def remove_channel(self, login: str) -> None:
-        await self._pool.execute("DELETE FROM channels WHERE login = $1", login.lower())
+        await self._execute("DELETE FROM channels WHERE login = $1", login.lower())
 
     async def all_channels(self) -> list[str]:
-        rows = await self._pool.fetch("SELECT login FROM channels ORDER BY login")
+        rows = await self._fetch("SELECT login FROM channels ORDER BY login")
         return [r["login"] for r in rows]
 
     async def list_channels(self) -> list[dict]:
-        rows = await self._pool.fetch("SELECT * FROM channels ORDER BY login")
+        rows = await self._fetch("SELECT * FROM channels ORDER BY login")
         return [dict(r) for r in rows]
 
     async def get_channel_by_login(self, login: str) -> Optional[dict]:
-        row = await self._pool.fetchrow("SELECT * FROM channels WHERE login = $1", login.lower())
+        row = await self._fetchrow("SELECT * FROM channels WHERE login = $1", login.lower())
         return dict(row) if row else None
 
     async def get_channel_by_id(self, broadcaster_id) -> Optional[dict]:
-        row = await self._pool.fetchrow("SELECT * FROM channels WHERE broadcaster_id = $1", str(broadcaster_id))
+        row = await self._fetchrow("SELECT * FROM channels WHERE broadcaster_id = $1", str(broadcaster_id))
         return dict(row) if row else None
 
     async def update_channel_settings(self, login: str, **fields) -> None:
@@ -220,17 +251,17 @@ class Database:
         if not sets:
             return
         assignments = ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(sets))
-        await self._pool.execute(
+        await self._execute(
             f"UPDATE channels SET {assignments} WHERE login = $1", login.lower(), *sets.values()
         )
 
     # --- settings -------------------------------------------------------------
     async def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
-        val = await self._pool.fetchval("SELECT value FROM settings WHERE key = $1", key)
+        val = await self._fetchval("SELECT value FROM settings WHERE key = $1", key)
         return default if val is None else val
 
     async def set_setting(self, key: str, value: str) -> None:
-        await self._pool.execute(
+        await self._execute(
             "INSERT INTO settings (key, value) VALUES ($1, $2) "
             "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             key,
@@ -238,7 +269,7 @@ class Database:
         )
 
     async def incr_setting(self, key: str) -> int:
-        val = await self._pool.fetchval(
+        val = await self._fetchval(
             "INSERT INTO settings (key, value) VALUES ($1, '1') "
             "ON CONFLICT (key) DO UPDATE SET value = "
             "(COALESCE(settings.value, '0')::bigint + 1)::text RETURNING value",
@@ -248,7 +279,7 @@ class Database:
 
     # --- auth token persistence ----------------------------------------------
     async def load_tokens(self) -> Optional[dict]:
-        row = await self._pool.fetchrow(
+        row = await self._fetchrow(
             "SELECT access_token, refresh_token, scopes FROM auth_tokens WHERE id = 1"
         )
         if row is None or row["access_token"] is None:
@@ -256,7 +287,7 @@ class Database:
         return dict(row)
 
     async def save_tokens(self, access_token: str, refresh_token: str, scopes: str = "") -> None:
-        await self._pool.execute(
+        await self._execute(
             "INSERT INTO auth_tokens (id, access_token, refresh_token, scopes, updated_at) "
             "VALUES (1, $1, $2, $3, now()) "
             "ON CONFLICT (id) DO UPDATE SET access_token = $1, refresh_token = $2, "
@@ -273,20 +304,20 @@ class Database:
             raise ValueError("record_observation requires a 'login'")
         placeholders = ", ".join(f"${i + 1}" for i in range(len(cols)))
         values = [obs[c] for c in cols]
-        await self._pool.execute(
+        await self._execute(
             f"INSERT INTO observations ({', '.join(cols)}) VALUES ({placeholders})",
             *values,
         )
 
     async def recent_observations(self, channel_id=None, limit: int = 50) -> list[dict]:
         if channel_id is not None:
-            rows = await self._pool.fetch(
+            rows = await self._fetch(
                 "SELECT * FROM observations WHERE channel_id = $1 ORDER BY observed_at DESC LIMIT $2",
                 str(channel_id),
                 limit,
             )
         else:
-            rows = await self._pool.fetch(
+            rows = await self._fetch(
                 "SELECT * FROM observations ORDER BY observed_at DESC LIMIT $1", limit
             )
         return [dict(r) for r in rows]

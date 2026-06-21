@@ -645,7 +645,13 @@ async def _set_session_from_token(token: str):
 
 @app.route("/health")
 async def health():
-    ok = getattr(chat_bot, "running", False) and getattr(chat_bot, "_db_healthy", False)
+    # Readiness gates Service membership, and the Service is how the one-time OAuth
+    # login (/login) and EventSub webhooks reach this pod. So readiness must report
+    # ready as soon as the web server is serving (it answered this probe) and the DB
+    # is reachable — it must NOT wait for the post-login `running` flag. Gating on
+    # `running` deadlocks: unready pod -> excluded from the Service -> /login
+    # unreachable -> admin can never log in -> `running` never set -> never ready.
+    ok = getattr(chat_bot, "_db_healthy", False)
     return ("", 200) if ok else ("not ready", 503)
 
 

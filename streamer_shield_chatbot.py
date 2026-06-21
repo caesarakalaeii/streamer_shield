@@ -258,21 +258,26 @@ class StreamerShieldTwitch:
 
     async def join_chat(self, name: str):
         global twitch
+        name = name.lower()
         unable_to_join = await self.chat.join_room(name)
         if unable_to_join:
             self.l.error(f"Unable to join {name}: {unable_to_join}")
             return f"Unable to join {name}: {unable_to_join}"
+        user = await first(twitch.get_users(logins=name))
+        if user is None:
+            self.l.error(f"Could not look up user {name}")
+            return f"Could not find Twitch user {name}"
+        # Register the channel regardless of mod status: it starts observe-only
+        # (is_armed follows config, default off) so self-service onboarding works
+        # before the streamer mods the bot. Restrict/monitor activate once modded.
+        await self.db.add_channel(name, broadcaster_id=user.id, defaults=self._channel_defaults())
+        with contextlib.suppress(Exception):
+            await self.new_follow_esub(user.id)
         if self.chat.is_mod(name):
             self.l.passing(f"Successfully joined {name}")
-            user = await first(twitch.get_users(logins=name))
-            await self.db.add_channel(name, broadcaster_id=user.id, defaults=self._channel_defaults())
-            try:
-                await self.new_follow_esub(user.id)
-            except Exception:
-                return "Unable to init EventSub, contact Admin"
             return f"Successfully joined {name}"
-        self.l.error(f"Joined {name}, but no mod status")
-        return f"Successfully joined {name}, but no mod status"
+        self.l.warning(f"Joined {name} without mod status")
+        return f"Joined {name}. Make @{self.user_name} a moderator to enable restrict/monitor."
 
     async def new_follow_esub(self, id: str):
         try:
@@ -643,6 +648,21 @@ async def _set_session_from_token(token: str):
     session["user_id"] = info.get("user_id")
 
 
+async def _ensure_channel_onboarded(login: str):
+    """Self-service onboarding: a streamer's first login registers their channel.
+
+    Removes the admin bottleneck — no manual add step. The admin logs in for
+    identity only, so they're skipped. Failures must not block login, so the
+    join is best-effort; the streamer can retry from the dashboard button.
+    """
+    if not login or login == (chat_bot.admin or "").lower():
+        return
+    if await chat_bot.db.get_channel_by_login(login):
+        return
+    with contextlib.suppress(Exception):
+        await chat_bot.join_chat(login)
+
+
 @app.route("/health")
 async def health():
     # Readiness gates Service membership, and the Service is how the one-time OAuth
@@ -687,6 +707,7 @@ async def login_confirm():
         if state == id_auth.state:
             token, _ = await id_auth.authenticate(user_token=code)
             await _set_session_from_token(token)
+            await _ensure_channel_onboarded(session.get("login"))
             return redirect("/")
     except TwitchAPIException:
         return "Failed to generate auth token", 400
@@ -741,6 +762,22 @@ async def channel_leave():
     with contextlib.suppress(Exception):
         await chat_bot.chat.leave_room(channel)
     await chat_bot.db.remove_channel(channel)
+    return redirect("/")
+
+
+@app.route("/channel/join", methods=["POST"])
+async def channel_join():
+    # Self-service: a streamer (re)adds their own channel. Auto-onboarding at login
+    # covers the common case; this is the dashboard fallback / retry. Admins may add
+    # any channel; everyone else only their own, enforced by _can_manage.
+    user = _session_login()
+    if not user:
+        return redirect("/login")
+    form = await request.form
+    channel = (form.get("channel") or user).strip().lower()
+    if not _can_manage(channel):
+        return "Forbidden", 403
+    await chat_bot.join_chat(channel)
     return redirect("/")
 
 

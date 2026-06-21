@@ -56,10 +56,15 @@ def render_landing() -> str:
 
 
 def render_no_channel(login: str) -> str:
+    safe = html.escape(login)
     body = (
-        f"<div class='card'><h3>Hi {html.escape(login)}</h3>"
-        "<p class='muted'>Your channel isn't protected by StreamerShield yet. "
-        "Ask the admin to add it, then come back here to tune settings.</p></div>"
+        f"<div class='card'><h3>Hi {safe}</h3>"
+        "<p class='muted'>Your channel isn't protected by StreamerShield yet.</p>"
+        '<form method="post" action="/channel/join">'
+        f'<input type="hidden" name="channel" value="{safe}">'
+        "<button type='submit'>Protect my channel</button></form>"
+        "<p class='muted'>Then make <b>StreamerShield</b> a moderator in your channel "
+        "to enable restrict/monitor.</p></div>"
     )
     return _page("StreamerShield", body, login)
 

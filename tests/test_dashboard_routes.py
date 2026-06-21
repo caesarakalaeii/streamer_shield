@@ -43,3 +43,37 @@ async def test_health_not_ready_when_db_down():
     cb.chat_bot = _HealthStub(running=True, db_healthy=False)
     resp = await cb.app.test_client().get("/health")
     assert resp.status_code == 503
+
+
+class _OnboardStub:
+    """chat_bot stand-in recording self-service onboarding decisions."""
+
+    def __init__(self, *, admin: str, existing: list[str]):
+        self.admin = admin
+        self.joined: list[str] = []
+        self._existing = {c.lower() for c in existing}
+        self.db = self
+
+    async def get_channel_by_login(self, login: str):
+        return {"login": login} if login.lower() in self._existing else None
+
+    async def join_chat(self, name: str):
+        self.joined.append(name)
+
+
+async def test_onboard_registers_new_streamer():
+    cb.chat_bot = _OnboardStub(admin="caesarlp", existing=[])
+    await cb._ensure_channel_onboarded("newstreamer")
+    assert cb.chat_bot.joined == ["newstreamer"]
+
+
+async def test_onboard_skips_existing_channel():
+    cb.chat_bot = _OnboardStub(admin="caesarlp", existing=["newstreamer"])
+    await cb._ensure_channel_onboarded("newstreamer")
+    assert cb.chat_bot.joined == []
+
+
+async def test_onboard_skips_admin():
+    cb.chat_bot = _OnboardStub(admin="caesarlp", existing=[])
+    await cb._ensure_channel_onboarded("caesarlp")
+    assert cb.chat_bot.joined == []

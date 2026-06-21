@@ -12,6 +12,14 @@ def test_no_channel_escapes_login():
     assert "&lt;script&gt;" in out
 
 
+def test_no_channel_offers_self_service_join():
+    # Onboarding must not be an admin-only dead-end: the streamer gets a
+    # self-service action to protect their own channel.
+    out = dashboard.render_no_channel("streamer")
+    assert 'action="/channel/join"' in out
+    assert "ask the admin" not in out.lower()
+
+
 def test_streamer_view_reflects_settings_and_escapes_bio():
     channel = {
         "login": "caesarlp", "is_armed": True, "collect_data": True,

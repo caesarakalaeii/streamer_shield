@@ -20,7 +20,14 @@
   outputs =
     # `...` rather than a closed { self, nixpkgs }: adding a second input later
     # would otherwise fail with "called with unexpected argument 'self'".
-    { nixpkgs, ... }:
+    #
+    # `self` is not decoration: it is the only way a wrapper that lives in the
+    # store can name this repo's own files, and that is what anchors every verb
+    # (see rootPreamble). The price is that the five verb wrappers rebuild
+    # whenever a tracked file changes -- measured at 3.4 s for a `nix develop -c
+    # true` that rebuilds all five plus the shell, shellcheck runs included, and
+    # worth it. dev-help does not reference the source, so it is not rebuilt.
+    { self, nixpkgs, ... }:
     let
       lib = nixpkgs.lib;
 
@@ -150,10 +157,26 @@
           # Docker. On this 3.12 pin `uv pip install -r requirements-api.txt`
           # into the same venv does work if you need them locally; it is a
           # ~600 MB download, which is why it is not part of setup.
-          description = "(network) create .venv from requirements-dev.txt";
+          #
+          # --allow-existing is not cosmetic. Without it a second `dev-setup` --
+          # the obvious move after editing requirements-dev.txt, and what any
+          # retry loop does -- dies on the FIRST line with "A virtual environment
+          # already exists at: .venv" and exit 2, so the install never runs. Every
+          # tree that has ever been set up is in exactly that state. Verified
+          # against uv 0.12.3. Do not "fix" it with --clear instead: that deletes
+          # a working venv to add one package.
+          #
+          # Extra arguments go to `uv pip install`, which is how you add the
+          # TensorFlow side into the same venv when you actually need it locally:
+          # `dev-setup -r requirements-api.txt`.
+          description = "(network) create/update .venv from requirements-dev.txt";
+          # A .venv belongs to a checkout, and the store snapshot is read-only, so
+          # there is nothing sensible to do without one -- least of all unpacking
+          # wheels into whichever directory the caller happened to be standing in.
           text = ''
-            uv venv "$REPO_ROOT/.venv"
-            uv pip install --python "$REPO_ROOT/.venv/bin/python" -r "$REPO_ROOT/requirements-dev.txt"
+            require_work_tree
+            uv venv --allow-existing "$REPO_ROOT/.venv"
+            uv pip install --python "$REPO_ROOT/.venv/bin/python" -r "$REPO_ROOT/requirements-dev.txt" "$@"
           '';
         };
         test = {
@@ -162,12 +185,22 @@
           # resolve to the store copy and miss every dependency `setup`
           # installed.
           #
-          # pytest.ini sets asyncio_mode=auto and pythonpath=., so the modules at
-          # the repo root import without an install step.
+          # pytest.ini sets asyncio_mode=auto, pythonpath=. and testpaths=tests,
+          # and pytest looks for that file -- plus everything those three settings
+          # are relative TO -- in the CURRENT directory, not next to the
+          # interpreter. So this cds to the root: run from anywhere else it
+          # collected the caller's directory instead, with none of the repo's
+          # config applied. It also keeps .pytest_cache inside the repo.
           # tests/test_db_integration.py self-skips unless DB_HOST is set; that
           # is a skip, not a pass, and running it needs a real Postgres.
           description = "run the pytest suite (needs `setup` first)";
-          text = ''"$REPO_ROOT/.venv/bin/python" -m pytest "$@"'';
+          # No $SRC_ROOT fallback: this needs the interpreter `setup` built, and
+          # .venv is gitignored, so it exists in a checkout and nowhere else.
+          text = ''
+            require_work_tree
+            cd "$REPO_ROOT"
+            "$REPO_ROOT/.venv/bin/python" -m pytest "$@"
+          '';
         };
         lint = {
           # This code has never been ruff-clean: a bare `dev-lint` currently
@@ -175,15 +208,46 @@
           # statement about the repo, so it stays unconfigured -- do not silence
           # it with a generated pyproject.toml, and do not treat the count as a
           # regression you introduced.
-          description = "ruff check";
-          text = ''ruff check "$@"'';
+          description = "ruff check the whole repo, from any directory";
+          # `cd` first, then a bare `.` default. Both halves are load-bearing:
+          # `ruff check "$@"` alone checked the caller's cwd -- which is how
+          # `nix run <url>#lint` used to print "All checks passed!" while looking
+          # at none of this repo -- and even `ruff check "''${@:-$SOMEROOT}"` falls
+          # back to the cwd the moment the caller passes a flag rather than a path
+          # (`--fix`, `--select F401`), because any argument suppresses the
+          # default. Standing in the root closes both, and it makes a relative
+          # path argument mean the same thing from every directory.
+          #
+          # ruff's incremental cache lands in $PWD. In the snapshot branch that is
+          # the read-only store, so it is switched off there; scattering
+          # .ruff_cache through the caller's directory was part of the same bug.
+          text = ''
+            if [ -n "$REPO_ROOT" ]; then
+              cd "$REPO_ROOT"
+              ruff check "''${@:-.}"
+            else
+              cd "$SRC_ROOT"
+              ruff check --no-cache "''${@:-.}"
+            fi
+          '';
         };
         fmt = {
           # There is no ruff/black config in this repo, so ruff's defaults apply
           # and the first unscoped run rewrites most files at once. Pass paths
-          # (`dev-fmt db.py`) when you only mean to format what you touched.
-          description = "ruff format (rewrites files; repo is not ruff-formatted yet)";
-          text = ''ruff format "$@"'';
+          # (`dev-fmt db.py`) when you only mean to format what you touched;
+          # relative paths are resolved from the repo root, same as `dev-lint`.
+          description = "ruff format the whole repo (rewrites files; repo is not ruff-formatted yet)";
+          # MUTATING, so no $SRC_ROOT fallback and emphatically no cwd default:
+          # `nix run /path/to/streamer_shield#fmt` from an unrelated directory
+          # used to reformat whatever Python it found there. Formatting the
+          # snapshot instead would be no better -- it either fails on the
+          # read-only store or reports "N files reformatted" for edits nobody can
+          # ever see.
+          text = ''
+            require_work_tree
+            cd "$REPO_ROOT"
+            ruff format "''${@:-.}"
+          '';
         };
         run = {
           # The bot process: hypercorn serves OAuth + /health on :5000 and the
@@ -193,8 +257,17 @@
           # resolves from any cwd -- config.py's load_dotenv() then finds the
           # root .env too. The prediction API it calls over SHIELD_URL is the
           # other process (Dockerfile.api), not this one.
+          #
+          # The absolute script path is still not enough on its own, which is why
+          # this cds as well: logger.py builds its log filenames relative to the
+          # CURRENT directory, so started from elsewhere the bot drops log files
+          # next to the caller.
           description = "start the chat bot (needs .env + a reachable Postgres)";
-          text = ''"$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/streamer_shield_chatbot.py" "$@"'';
+          text = ''
+            require_work_tree
+            cd "$REPO_ROOT"
+            "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/streamer_shield_chatbot.py" "$@"
+          '';
         };
       };
 
@@ -212,13 +285,52 @@
           export LD_LIBRARY_PATH="${lib.makeLibraryPath (nativeLibs pkgs)}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         '';
 
-      # Every command gets $REPO_ROOT. `nix run` and `nix develop` both start in
-      # whatever directory they were invoked from, so a bare `.venv` silently
-      # forks a second environment as soon as an agent works from a subdirectory.
-      # Note we do NOT cd there: commands act on the caller's cwd on purpose.
+      # Every command gets two anchors, and NEITHER of them is the caller's cwd.
+      #
+      #   $SRC_ROOT   this flake's own source tree as copied into the store when
+      #               the wrapper was built: always present, always exactly this
+      #               repo's content, always read-only. It is the only path
+      #               `nix run /elsewhere/streamer_shield#lint` can be certain of
+      #               -- the wrapper is a store path and has no idea where the
+      #               checkout it came from lives. It sees git-tracked files only,
+      #               so a brand new file is invisible until `git add`.
+      #   $REPO_ROOT  the live checkout, or EMPTY when the caller is not standing
+      #               in it. Preferred whenever it exists: it is writable, and it
+      #               sees edits the snapshot does not.
+      #
+      # The previous `git rev-parse --show-toplevel || pwd` was worse than no
+      # anchor at all. From an unrelated directory it resolved to that directory,
+      # so `nix run <url>#lint` -- the form CI and a cold agent use -- reported
+      # success having inspected none of this repo, and `nix run <url>#fmt`
+      # rewrote a stranger's source in place. `git rev-parse` on its own is not
+      # enough either: run from inside some OTHER checkout it cheerfully reports
+      # that repo. So a candidate only counts as ours when every top-level name in
+      # the snapshot also exists in it -- cheap, needs no tool beyond the shell,
+      # and unlike comparing flake.nix it survives editing this file.
+      #
+      # Read-only verbs then fall back to $SRC_ROOT and report the same thing from
+      # any cwd. Verbs that write or need the .venv call `require_work_tree` and
+      # refuse instead: the snapshot is read-only, and the caller's directory is
+      # not ours to guess at.
       rootPreamble = ''
-        REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-        export REPO_ROOT
+        SRC_ROOT=${self}
+        REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+        if [ -n "$REPO_ROOT" ]; then
+          for entry in "$SRC_ROOT"/*; do
+            [ -e "$REPO_ROOT/''${entry##*/}" ] || { REPO_ROOT=""; break; }
+          done
+        fi
+        export SRC_ROOT REPO_ROOT
+
+        # Called by every verb that writes, before it writes anything.
+        require_work_tree() {
+          if [ -z "$REPO_ROOT" ]; then
+            echo "''${0##*/}: this verb writes to the checkout, and the directory" >&2
+            echo "  you called from is not one. Run it from inside the work tree," >&2
+            echo "  or from a \`nix develop\` started there." >&2
+            exit 1
+          fi
+        }
       '';
 
       # One derivation per command, reused by both `apps` and the dev shell, so
@@ -301,14 +413,20 @@
             ${ldPreamble pkgs}
 
             # Nothing networked, nothing stateful and nothing interactive above
-            # this line, and nothing below it either. In particular this hook
-            # does NOT do what .envrc does -- no venv creation, no `pip install`,
-            # no `source .venv/bin/activate`, no dotenv load. Bootstrapping in
-            # the hook makes a cold `nix develop -c pytest` start downloading
-            # before it runs anything, on EVERY invocation -- the exact failure
-            # an unattended agent cannot diagnose. That is what `dev-setup` is
-            # for. direnv users keep using .envrc; it is untouched and the two
-            # agree because both end up at "$REPO_ROOT/.venv".
+            # this line, and nothing below it either -- no venv creation, no
+            # `pip install`, no `source .venv/bin/activate`, no dotenv load.
+            # Bootstrapping in the hook makes a cold `nix develop -c pytest`
+            # start downloading before it runs anything, on EVERY invocation --
+            # the exact failure an unattended agent cannot diagnose. That is what
+            # `dev-setup` is for.
+            #
+            # .envrc is now a two-liner that delegates here (`use flake`), so
+            # direnv users get this shell and these wrappers rather than a
+            # separate host-Python venv built behind the flake's back. It keeps
+            # the `dotenv_if_exists .env` line, which belongs there and not here:
+            # a store-built shell must not depend on a gitignored file, and
+            # config.py load_dotenv()s the same .env for anyone who does not use
+            # direnv.
 
             # The banner is interactive-only, and this guard is load-bearing:
             # shellHook output lands on the STDOUT of `nix develop -c <cmd>`, so
@@ -348,6 +466,65 @@
                   exit 1
                 }
               done
+              touch "$out"
+            '';
+
+        # The build sandbox is an ideal stand-in for "some unrelated directory":
+        # no git repo, no dotfiles, and no Python in it but what we plant here.
+        #
+        # This check exists because the flake shipped with exactly the opposite
+        # behaviour. Every command text ended in a bare "$@", so with no arguments
+        # they acted on the CALLER's cwd: `nix run <url>#lint` -- the form CI and a
+        # cold agent use -- passed while inspecting none of this repo, and
+        # `nix run <url>#fmt` reformatted source files outside it. Both are
+        # regressions a human reviewer will not notice, so they get a machine.
+        anchoring =
+          pkgs.runCommand "anchoring-check"
+            {
+              nativeBuildInputs = lib.attrValues (wrappers pkgs);
+            }
+            ''
+              decoy="$NIX_BUILD_TOP/decoy"
+              logs="$NIX_BUILD_TOP/logs"
+              mkdir -p "$decoy" "$logs"
+              printf 'import os,sys\nx=1\n' > "$decoy/decoy.py"
+              cp "$decoy/decoy.py" "$decoy/decoy.py.orig"
+              cd "$decoy"
+
+              # The read-only verb must inspect this repo wherever it is called
+              # from. Asserted through --show-files rather than through findings,
+              # so this check does not start lying the day someone fixes the last
+              # of the 77 ruff warnings.
+              dev-lint --show-files > "$logs/files.log"
+              grep -q '/streamer_shield_chatbot.py$' "$logs/files.log" || {
+                echo "dev-lint did not look at the repo:" >&2
+                cat "$logs/files.log" >&2
+                exit 1
+              }
+              if grep -q decoy "$logs/files.log"; then
+                echo "dev-lint reached into the caller's directory:" >&2
+                cat "$logs/files.log" >&2
+                exit 1
+              fi
+
+              # Verbs that write, or that need the .venv, must refuse when there
+              # is no checkout rather than improvise one out of $PWD.
+              for verb in fmt setup test run; do
+                if "dev-$verb" > "$logs/$verb.log" 2>&1; then
+                  echo "dev-$verb should have refused outside a work tree:" >&2
+                  cat "$logs/$verb.log" >&2
+                  exit 1
+                fi
+              done
+
+              # Nothing whatsoever may have appeared next to the caller: not a
+              # reformatted file, not a .venv, not even a .ruff_cache.
+              cmp "$decoy/decoy.py" "$decoy/decoy.py.orig"
+              [ "$(find "$decoy" -mindepth 1 | wc -l)" -eq 2 ] || {
+                echo "something was written into the caller's directory:" >&2
+                find "$decoy" -mindepth 1 >&2
+                exit 1
+              }
               touch "$out"
             '';
       });

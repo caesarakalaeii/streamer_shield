@@ -27,3 +27,7 @@ joinable_channels.json
 *.db
 instance/*
 reverse_proxy/*
+
+# Nix build result symlinks (`nix build`); .venv/.direnv are covered above.
+result
+result-*
